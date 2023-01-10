@@ -1,0 +1,3435 @@
+     H COPYRIGHT('ô Copyright Silverlake System Sdn. Bhd. 1993, 1994          ')
+     H OPTION(*SRCSTMT:*NODEBUGIO)
+     H CVTOPT(*VARCHAR)
+     H BNDDIR('CLBNDDIR')
+      ***************************************************************
+      *  Program ....: CLI500
+      *  Description.: Loan Non1P to STAMC:Collateral and Contract
+      *  Created By..: Sartra T.
+      *  Date Created: 05/09/2022
+      *  Type........: CR#2111 Bulk stamc
+      ***************************************************************
+      * Error Code:
+      ***************************************************************
+      *  MODIFICATION LOGS
+      *  NAME  INIT   DATE        REMARKS
+      *  ----  -----  dd/mm/yyyy  ---------------------------------------------------------------
+      *  TOR   T1001  19/10/2022  error main:Collateral Address
+      *  TOR   T1002  21/10/2022  coll main first record
+      *                           coll main add/change
+      *  PRUK  T1003  27/10/2022  Add Program For Link Sub Collateral
+      *               28/10/2022  Check GOOD and BAD for Link Sub Collateral
+      *  PRUK  T1004  15/11/2022 -| Mapping Phase 2
+      *               21/11/2022 -| keep coll of main 1 time
+      *------------------------------------------------------------------------------------------
+     FCLON1PC   UF   E             DISK
+     FCLCOLD    IF   E             DISK
+     FCLPAR1    IF   E             DISK
+     D*--------------------------------
+     D*
+     D blist           DS                  OCCURS(10)
+     D  bfile                  1     10
+     D  bmntreq               11     18
+     D BUFFER          DS
+     D  BUF                    1  20000
+     D HDBKNO          S              2  0
+     D HDBRNO          S              5  0
+     D HDSRID          S              3
+     D HDSUP1          S             10
+     D HDUSID          S             10
+     D HDTCOD          S             10
+     D M3APCD          S              2
+     D*
+     D*
+     D*-- Variable declaration --*
+     D* Work Fields
+     D OPTION          S              1
+     D ERROR           S              1
+     D ELINE           S              1  0
+     D WTXNSTS         S              1                                         S-Succ/F-Fail
+     D WTXNSTS_GOOD    S              1                                         S-Succ ?
+     D WMSGFC          S            256
+     D
+     D WERRORC         S                   LIKE(ERRCDE)
+     D WERRMSG         S                   LIKE(meERDESC)
+     D WMSGDTA         S                   LIKE(RMSGDT)
+     D WERRFLD         S                   LIKE(meERFLDN)
+     D*
+     D                 DS
+     D NLEN                    1      2B 0
+     D CLEN                    1      2
+     D*
+     D*CopyBook -MBASE Interface DDS
+     D/COPY QCLMREFRLE,LLIMBDDS
+     D* Porgram Status Data Structure
+     D                SDS
+     D PSPGM                   1     10
+     D PSPARM                 37     39  0
+     D PSMSG                  40     46
+     D PSMDTA                 91    170
+     D PSJOBN                244    253
+     D PSUSRN                254    263
+     D PSJOB#                264    269
+     D* Constant
+     D BAD             C                   'AB'
+     D GOOD            C                   'AA'
+     C*
+     D ICLMNTN       E DS                  EXTNAME(CLMNTN)
+     D               EUDS                  EXTNAME(SSAPAR)
+     D*
+     D S#CCDCID        S                   LIKE(CCDCID)  DIM(9999)              Sub Collateral ID
+     D Z#CCDCID        S                   LIKE(CCDCID)  DIM(9999)              Sub Collateral ID of Main
+     D M#CCDCID        S                   LIKE(CCDCID)  DIM(9999)              Main Collateral ID
+     D WK_CCDCID       S                   LIKE(CCDCID)                         work Collateral ID
+     D WK_CCONID       S                   LIKE(CCDCID)                         work Contract ID
+T1002D V#CCDCID        S                   LIKE(CCDCID)  DIM(5)                 Collateral ID validate
+T1003D P#CCDCID        S                   LIKE(CCDCID)  DIM(5)                 Collateral ID for link
+     D X#CNT_REC       S              5  0                                      count record
+     D X#CNT_ALL       S              5  0                                      count before MAIN
+     D X#CNT_MAIN      S              5  0                                      count record RE,MACH
+     D X#CNT_COL       S              5  0                                      count collateral
+     D X#COL_CON       S              5  0                                      count collateral n contract
+     D X#CON_FAC       S              5  0                                      count contract to facility
+     D QQ              S              5  0
+     D ZZ              S              5  0
+     D WW              S              5  0
+     D X1_RECSEQ       S                   LIKE(CLP002)
+     D X2_RECSEQ       S                   LIKE(CLP002)
+     D ER_RECSEQ       S                   LIKE(CLP002)
+     D II              S              5  0
+     D JJ              S              5  0
+T1002D VV              S              2  0
+T1003D PP              S              2  0
+T1003D WK_BAD          S              1    INZ('N')
+     D DIMRECSEQ       S                   LIKE(CLP002) DIM(99999)              running no error
+     D C_CLP001_CL     C                   'CL'
+     D C_CLP001_CM     C                   'CM'
+     D C_CLP001_CT     C                   'CT'
+     D C_CLP001_CF     C                   'CF'
+     D C_CLP003_PG     C                   'PG'
+     D C_CLP003_RE     C                   'RE'
+     D C_CLP003_MAIN   C                   'MAIN'
+     D C_CLP003_STOCK  C                   'STOCK'
+     D C_CLP003_DEBT   C                   'DEBT'
+     D C_CLP003_LC     C                   'LC'
+     D C_CLP003_LSAGR  C                   'LSAGR'
+     D C_CLP003_MACH   C                   'MACH'
+     D C_CLP003_PN     C                   'PN'
+     D C_CLP003_VEH    C                   'VEH'
+     D C_CLP003_GEN    C                   'GEN'
+     D* Table Reference
+     D XXXErrCd        S              2    Dim(22) CTDATA PERRCD(1)
+     D XXXErrDesc      S             90    Dim(22) ALT(XXXErrCd)
+     D*
+     D*Maintenance - CLM Collateral Real Estate-RE
+     D DS88209I      E DS                  EXTNAME(CL88209I) PREFIX(Z10_)
+     D DS88209R      E DS                  EXTNAME(CL88209R) PREFIX(Z11_)
+     D*Maintenance - CLM Collateral Guarantee-PG
+     D DS88207I      E DS                  EXTNAME(CL88207I) PREFIX(Z12_)
+     D DS88207R      E DS                  EXTNAME(CL88207R) PREFIX(Z13_)
+     D*Maintenance - CLM Main Collateral-MAIN
+     D DS88230I      E DS                  EXTNAME(CL88230I) PREFIX(Z14_)
+     D DS88230R      E DS                  EXTNAME(CL88230R) PREFIX(Z15_)
+T1003D*Maintenance - CLM Main and Sub coll. linkage
+T1003D DS88241I      E DS                  EXTNAME(CL88241I) PREFIX(Z38_)
+T1003D DS88241R      E DS                  EXTNAME(CL88241R) PREFIX(Z39_)
+     D*Maintenance - CLM Collateral Address
+     D DS88236I      E DS                  EXTNAME(CL88236I) PREFIX(Z16_)
+     D DS88236R      E DS                  EXTNAME(CL88236R) PREFIX(Z17_)
+     D*Maintenance - CLM Collateral Contract-CT
+     D DS88500I      E DS                  EXTNAME(CL88500I) PREFIX(Z18_)
+     D DS88500R      E DS                  EXTNAME(CL88500R) PREFIX(Z19_)
+     D*Maintenance - Facilityy & Contract linkage-CF
+     D DS88505I      E DS                  EXTNAME(CL88505I) PREFIX(Z20_)
+     D DS88505R      E DS                  EXTNAME(CL88505R) PREFIX(Z21_)
+     D*
+     D*Maintenance - CLM Collateral Stock-STOCK
+     D DS88210I      E DS                  EXTNAME(CL88210I) PREFIX(Z22_)
+     D DS88210R      E DS                  EXTNAME(CL88210R) PREFIX(Z23_)
+     D*Maintenance - CLM Collateral Bond-DEBT
+     D DS88201I      E DS                  EXTNAME(CL88201I) PREFIX(Z24_)
+     D DS88201R      E DS                  EXTNAME(CL88201R) PREFIX(Z25_)
+     D*Maintenance - CLM Collateral LC-LC
+     D DS88205I      E DS                  EXTNAME(CL88205I) PREFIX(Z26_)
+     D DS88205R      E DS                  EXTNAME(CL88205R) PREFIX(Z27_)
+     D*Maintenance - CLM Collateral Lease Agreement-LSAGR
+     D DS88206I      E DS                  EXTNAME(CL88206I) PREFIX(Z28_)
+     D DS88206R      E DS                  EXTNAME(CL88206R) PREFIX(Z29_)
+     D*Maintenance - CLM Collateral Machinery-MACH
+     D DS88213I      E DS                  EXTNAME(CL88213I) PREFIX(Z30_)
+     D DS88213R      E DS                  EXTNAME(CL88213R) PREFIX(Z31_)
+     D*Maintenance - CLM Collateral Promisional Note-PN
+     D DS88208I      E DS                  EXTNAME(CL88208I) PREFIX(Z32_)
+     D DS88208R      E DS                  EXTNAME(CL88208R) PREFIX(Z33_)
+     D*Maintenance - CLM Collateral Vehicle-VEH
+     D DS88212I      E DS                  EXTNAME(CL88212I) PREFIX(Z34_)
+     D DS88212R      E DS                  EXTNAME(CL88212R) PREFIX(Z35_)
+     D*Maintenance - CLM Collateral General-GEN
+     D DS88203I      E DS                  EXTNAME(CL88203I) PREFIX(Z36_)
+     D DS88203R      E DS                  EXTNAME(CL88203R) PREFIX(Z37_)
+     D*
+     C*------------------------------------------
+     C*-- Parameter and Key Lists declaration --*
+     C*------------------------------------------
+     C*
+     C     *LIKE         DEFINE    mhHDBKNO      IN__BKN
+     C     *LIKE         DEFINE    mhHDBRNO      IN__BRN
+     C**   *LIKE         DEFINE    mhHDTMLI      INMNCWID
+     C**   *LIKE         DEFINE    mhHDUSID      INMNCUID
+     C*
+     C*check validate
+     C                   EXSR      SR_PROC_S1
+     C*skip error
+     C                   EXSR      SR_PROC_S2
+     C*process
+     C                   EXSR      SR_PROC_S3
+     C*skip error after process
+     C                   EXSR      SR_PROC_S2
+     C*
+     C                   MOVE      '1'           *INLR
+     C*------------------
+     C     SR_PROC_S1    BEGSR
+     C*check validate
+     C*
+     C                   EXSR      SR_CLRVAR_P1
+     C*
+     C                   DOU       WKEOLOOP      = *ON
+     C                   READ      CLON1PC
+     C                   IF        %EOF(CLON1PC)
+     C                   LEAVE
+     C                   ENDIF
+     C*only flag=blank
+     C                   IF        FLAGERR       = *BLANK
+     C                   ELSE
+     C                   ITER
+     C                   ENDIF
+     C*
+     C*break Record Running No
+     C                   MOVEL(P)  CLP002        X1_RECSEQ
+     C*
+     C                   IF        WKFIRSTR      = *OFF
+     C                   MOVEL(P)  *ON           WKFIRSTR
+     C                   MOVEL(P)  X1_RECSEQ     X2_RECSEQ
+     C                   ENDIF
+     C*
+     C                   IF        X1_RECSEQ     <> X2_RECSEQ
+     C                   EXSR      SR_CLRVAR_P1
+     C                   MOVEL(P)  X1_RECSEQ     X2_RECSEQ
+     C                   ENDIF
+     C*
+     C*error same Record Running
+     C                   IF        CLP002        = ER_RECSEQ
+     C                   MOVEL(P)  'Y'           FLAGERR
+     C                   UPDATE    RCLON1PC
+     C                   ITER
+     C                   ENDIF
+     C*
+     C*count record
+     C                   ADD       1             X#CNT_REC
+     C                   IF        CLP001        = C_CLP001_CL
+     C                   ADD       1             X#CNT_COL
+     C                   ENDIF
+     C                   IF        CLP003        = C_CLP003_RE    OR
+     C                             CLP003        = C_CLP003_MACH
+     C                   ADD       1             X#CNT_MAIN
+     C                   MOVEL(P)  *ON           FLAG_MAIN
+     C                   ENDIF
+     C                   IF        FLAG_MAIN     = *ON   AND
+     C                             CLP001        = C_CLP001_CL
+     C                   ADD       1             X#CNT_ALL
+     C                   ENDIF
+     C                   IF        CLP001        = C_CLP001_CT
+     C                   ADD       1             X#COL_CON
+     C                   ENDIF
+     C                   IF        CLP001        = C_CLP001_CF
+     C                   ADD       1             X#CON_FAC
+     C                   ENDIF
+     C*
+     C*Record|Collateral
+     C*Type  |Category
+     C*CM    |MAIN       ?
+     C                   IF        CLP001        = C_CLP001_CM   AND
+     C                             CLP003        <>C_CLP003_MAIN
+     C                   MOVEL(P)  '01'          wErrorCode
+     C                   EXSR      SR_ERROR_E1
+     C                   ITER
+     C                   ENDIF
+     C*
+     C                   IF        CLP001        <>C_CLP001_CM   AND
+     C                             CLP003        = C_CLP003_MAIN
+     C                   MOVEL(P)  '02'          wErrorCode
+     C                   EXSR      SR_ERROR_E1
+     C                   ITER
+     C                   ENDIF
+     C*---------------------
+     C*System cannot support
+     C*
+     C**T1002  case 1,4
+     C**T1002            IF        CLP003        = C_CLP003_MAIN   AND
+     C**T1002                      X#CNT_REC     = 1
+     C**T1002            MOVEL(P)  '03'          wErrorCode
+     C**T1002            EXSR      SR_ERROR_E1
+     C**T1002            ITER
+     C**T1002            ENDIF
+     C*
+T1002C*case 10   main
+T1002C                   IF        CLP003        = C_CLP003_MAIN   AND
+T1002C                             X#CNT_REC     = 1
+T1002C                   EVAL      Z14_CCDCID    = %INT(%SUBST(CLP048:1:19))
+T1002C                   EVAL      Z14_CCSCOL_1  = %INT(%SUBST(CLP026:1:19))
+T1002C                   EVAL      Z14_CCSCOL_2  = %INT(%SUBST(CLP027:1:19))
+T1002C                   EVAL      Z14_CCSCOL_3  = %INT(%SUBST(CLP028:1:19))
+T1002C                   EVAL      Z14_CCSCOL_4  = %INT(%SUBST(CLP029:1:19))
+T1002C                   EVAL      Z14_CCSCOL_5  = %INT(%SUBST(CLP030:1:19))
+T1002C*
+T1002C                   IF        Z14_CCSCOL_1  = 0   AND
+T1002C                             Z14_CCSCOL_2  = 0   AND
+T1002C                             Z14_CCSCOL_3  = 0   AND
+T1002C                             Z14_CCSCOL_4  = 0   AND
+T1002C                             Z14_CCSCOL_5  = 0
+T1002C                   MOVEL(P)  '13'          wErrorCode
+T1002C                   EXSR      SR_ERROR_E1
+T1002C                   ITER
+T1002C                   ENDIF
+T1002C*
+T1002C                   EXSR      SR_CCDCAT_VAL
+T1002C                   IF        WK_CCDCAT_ERR = *ON
+T1002C                   MOVEL(P)  '14'          wErrorCode
+T1002C                   EXSR      SR_ERROR_E1
+T1002C                   ITER
+T1002C                   ENDIF
+T1002C*
+T1002C                   ENDIF
+T1002C*
+     C******  case 2    COUNT_MAIN=0 ALL=0
+     C**                 IF        CLP003        = C_CLP003_MAIN
+     C**                 IF        X#CNT_MAIN    = *ZEROS
+     C**                 MOVEL(P)  '04'          wErrorCode
+     C**                 EXSR      SR_ERROR_E1
+     C**                 ITER
+     C**                 ENDIF
+     C**                 ENDIF
+     C*
+     C*case 5    COUNT_MAIN=1 ALL=2
+     C                   IF        CLP003        = C_CLP003_MAIN
+     C                   IF        X#CNT_MAIN    = X#CNT_ALL
+     C*
+     C                   ELSE
+     C                   IF        X#CNT_MAIN    = 1
+     C                   MOVEL(P)  '05'          wErrorCode
+     C                   EXSR      SR_ERROR_E1
+     C                   EXSR      SR_CLRVAR_P2
+     C                   ITER
+     C                   ENDIF
+     C                   ENDIF
+     C                   ENDIF
+     C*
+     C*case 5.1
+     C* RE
+     C* RE
+     C* PG   <--
+     C* MAIN     COUNT_MAIN=2 ALL=3
+     C                   IF        CLP003        = C_CLP003_MAIN
+     C                   IF        X#CNT_MAIN    = X#CNT_ALL
+     C*
+     C                   ELSE
+     C                   MOVEL(P)  '10'          wErrorCode
+     C                   EXSR      SR_ERROR_E1
+     C                   EXSR      SR_CLRVAR_P2
+     C                   ITER
+     C                   ENDIF
+     C                   ENDIF
+     C*
+     C*case 6
+     C                   IF        X#COL_CON     > 1
+     C                   MOVEL(P)  '06'          wErrorCode
+     C                   EXSR      SR_ERROR_E1
+     C                   ITER
+     C                   ENDIF
+     C*
+     C*case 7
+     C                   IF        X#CON_FAC     > 1
+     C                   MOVEL(P)  '07'          wErrorCode
+     C                   EXSR      SR_ERROR_E1
+     C                   ITER
+     C                   ENDIF
+     C*
+     C*case 9,3
+     C                   IF        CLP001        = C_CLP001_CT   AND
+     C                             X#CNT_COL     = 0
+     C*collateral
+     C                   EVAL      Z18_CCDCID_1  = %INT(%SUBST(CLP019:1:19))
+     C                   EVAL      Z18_CCDCID_2  = %INT(%SUBST(CLP020:1:19))
+     C                   EVAL      Z18_CCDCID_3  = %INT(%SUBST(CLP021:1:19))
+     C                   EVAL      Z18_CCDCID_4  = %INT(%SUBST(CLP022:1:19))
+     C                   EVAL      Z18_CCDCID_5  = %INT(%SUBST(CLP023:1:19))
+     C                   IF        Z18_CCDCID_1  = 0  AND
+     C                             Z18_CCDCID_2  = 0  AND
+     C                             Z18_CCDCID_3  = 0  AND
+     C                             Z18_CCDCID_4  = 0  AND
+     C                             Z18_CCDCID_5  = 0
+     C                   MOVEL(P)  '09'          wErrorCode
+     C                   EXSR      SR_ERROR_E1
+     C                   ITER
+     C                   ENDIF
+     C                   ENDIF
+     C*
+     C*case 8
+     C                   IF        CLP001        = C_CLP001_CF    AND
+     C                             X#CNT_REC     = 1
+     C*contract
+     C                   EVAL      Z20_CCONID    = %INT(%SUBST(CLP016:1:19))
+     C                   IF        Z20_CCONID    = 0
+     C                   MOVEL(P)  '08'          wErrorCode
+     C                   EXSR      SR_ERROR_E1
+     C                   ITER
+     C                   ENDIF
+     C*
+     C                   ENDIF
+     C*
+     C                   IF        CLP001        = C_CLP001_CF
+     C*FACILITY ID
+     C                   EVAL      Z20_COAPNO_1  = %INT(%SUBST(CLP017:1:19))
+     C                   EVAL      Z20_COAPNO_2  = %INT(%SUBST(CLP018:1:19))
+     C                   EVAL      Z20_COAPNO_3  = %INT(%SUBST(CLP019:1:19))
+     C                   EVAL      Z20_COAPNO_4  = %INT(%SUBST(CLP020:1:19))
+     C                   EVAL      Z20_COAPNO_5  = %INT(%SUBST(CLP021:1:19))
+     C                   IF        Z20_COAPNO_1  = 0  AND
+     C                             Z20_COAPNO_2  = 0  AND
+     C                             Z20_COAPNO_3  = 0  AND
+     C                             Z20_COAPNO_4  = 0  AND
+     C                             Z20_COAPNO_5  = 0
+     C                   MOVEL(P)  '11'          wErrorCode
+     C                   EXSR      SR_ERROR_E1
+     C                   ITER
+     C                   ENDIF
+     C                   ENDIF
+     C*reset
+     C                   IF        CLP003        = C_CLP003_MAIN
+     C                   EXSR      SR_CLRVAR_P2
+     C                   ENDIF
+     C*
+     C                   ENDDO
+     C*
+     C                   ENDSR
+     C*------------------
+     C     SR_PROC_S2    BEGSR
+     C*skip error
+     C     *START        SETLL     CLON1PC
+     C                   DOU       WKEOSKIP      = *ON
+     C                   READ      CLON1PC
+     C                   IF        %EOF(CLON1PC)
+     C                   LEAVE
+     C                   ENDIF
+     C                   Z-ADD     1             JJ
+     C     CLP002        LOOKUP    DIMRECSEQ(JJ)                          55
+     C                   IF        *IN55
+     C                   EVAL      FLAGERR       = 'Y'
+     C                   UPDATE    RCLON1PC
+     C                   ENDIF
+     C                   ENDDO
+     C*
+     C                   ENDSR
+     C*------------------
+     C     SR_PROC_S3    BEGSR
+     C*process
+     C                   MOVEL(P)  *OFF          WKFIRSTR
+     C                   EXSR      SR_CLRVAR_P1
+     C*
+     C     *START        SETLL     CLON1PC
+     C                   DOU       WKEOLOOP      = *ON
+     C                   READ      CLON1PC
+     C                   IF        %EOF(CLON1PC)
+     C                   LEAVE
+     C                   ENDIF
+     C*only flag=blank
+     C                   IF        FLAGERR       = *BLANK
+     C                   ELSE
+     C                   ITER
+     C                   ENDIF
+     C*
+     C*error same Record Running
+     C                   IF        CLP002        = ER_RECSEQ
+     C                   MOVEL(P)  'Y'           FLAGERR
+     C                   UPDATE    RCLON1PC
+     C                   ITER
+     C                   ENDIF
+     C*
+     C*break Record Running No
+     C                   MOVEL(P)  CLP002        X1_RECSEQ
+     C*
+     C                   IF        WKFIRSTR      = *OFF
+     C                   MOVEL(P)  *ON           WKFIRSTR
+     C                   MOVEL(P)  X1_RECSEQ     X2_RECSEQ
+     C                   ENDIF
+     C*
+     C                   IF        X1_RECSEQ     <> X2_RECSEQ
+     C                   EXSR      SR_GOOD_RTN
+     C                   EXSR      SR_CLRVAR_P1
+     C                   MOVEL(P)  X1_RECSEQ     X2_RECSEQ
+     C                   ENDIF
+     C*
+     C                   SELECT
+     C*CL RE
+     C                   WHEN      CLP001        = C_CLP001_CL   AND
+     C                             CLP003        = C_CLP003_RE
+     C                   EXSR      SR_CL88209_RE
+     C*
+     C*CL PG
+     C                   WHEN      CLP001        = C_CLP001_CL   AND
+     C                             CLP003        = C_CLP003_PG
+     C                   EXSR      SR_CL88207_PG
+     C*
+     C*CL STOCK
+     C                   WHEN      CLP001        = C_CLP001_CL   AND
+     C                             CLP003        = C_CLP003_STOCK
+     C                   EXSR      SR_CL88210_STK
+     C*
+     C*CL DEBT
+     C                   WHEN      CLP001        = C_CLP001_CL   AND
+     C                             CLP003        = C_CLP003_DEBT
+     C                   EXSR      SR_CL88201_BND
+     C*
+     C*CL LC
+     C                   WHEN      CLP001        = C_CLP001_CL   AND
+     C                             CLP003        = C_CLP003_LC
+     C                   EXSR      SR_CL88205_LC
+     C*
+     C*CL LSAGR
+     C                   WHEN      CLP001        = C_CLP001_CL   AND
+     C                             CLP003        = C_CLP003_LSAGR
+     C                   EXSR      SR_CL88206_LSA
+     C*
+     C*CL MACH
+     C                   WHEN      CLP001        = C_CLP001_CL   AND
+     C                             CLP003        = C_CLP003_MACH
+     C                   EXSR      SR_CL88213_MCH
+     C*
+     C*CL PN
+     C                   WHEN      CLP001        = C_CLP001_CL   AND
+     C                             CLP003        = C_CLP003_PN
+     C                   EXSR      SR_CL88208_PN
+     C*
+     C*CL VEH
+     C                   WHEN      CLP001        = C_CLP001_CL   AND
+     C                             CLP003        = C_CLP003_VEH
+     C                   EXSR      SR_CL88212_VEH
+     C*
+     C*CL GEN
+     C                   WHEN      CLP001        = C_CLP001_CL   AND
+     C                             CLP003        = C_CLP003_GEN
+     C                   EXSR      SR_CL88203_GEN
+     C*
+     C*CM MAIN
+     C                   WHEN      CLP001        = C_CLP001_CM   AND
+     C                             CLP003        = C_CLP003_MAIN
+     C                   EXSR      SR_CL88230_MN
+     C                   IF        WTXNSTS_GOOD  = 'S'
+     C                   EXSR      SR_CL88236_MN
+     C                   ENDIF
+     C                   EXSR      SR_CLRVAR_P3
+     C*
+     C*CT
+     C                   WHEN      CLP001        = C_CLP001_CT
+     C                   EXSR      SR_CL88500_CT
+     C*
+     C*CF
+     C                   WHEN      CLP001        = C_CLP001_CF
+     C                   EXSR      SR_CL88505_CF
+     C*
+     C                   ENDSL
+     C                   ENDDO
+     C*
+     C                   IF        WKFIRSTR      = *OFF
+     C                   ELSE
+     C                   EXSR      SR_GOOD_RTN
+     C                   ENDIF
+     C*
+     C                   ENDSR
+     C*------------------
+     C     SR_CL88209_RE BEGSR
+     C*Maintenance - CLM Collateral Real Estate
+     C                   EVAL      WERRORC       = *BLANKS
+     C                   EVAL      WERRFLD       = *BLANKS
+     C                   EVAL      WMSGDTA       = *BLANKS
+     C                   EVAL      WERRMSG       = *BLANKS
+     C                   CLEAR                   DS88209I
+     C*Map Fields
+     C                   CLEAR                   MBHEADR
+     C*
+2.1  C                   EVAL      Z10_CCDCAT    = %SUBST(CLP003:1:5)
+9    C                   EVAL      Z10_CCDCOD    = %SUBST(CLP004:1:10)
+5    C                   EVAL      Z10_CCBKN     =
+     C                             %INT(%SUBST(CLP005:1:2))
+6    C                   EVAL      Z10_CCBRN     =
+     C                             %INT(%SUBST(CLP006:1:5))
+23   C                   EVAL      Z10_CCCIFN    =
+     C                             %INT(%SUBST(CLP007:1:19))
+216  C                   EVAL      Z10_CCTTYP    = %SUBST(CLP008:1:1)
+20   C                   EVAL      Z10_CCDTTL    = %SUBST(CLP009:1:20)
+77   C                   EVAL      Z10_CCDLOT    = %SUBST(CLP010:1:25)
+75   C                   EVAL      Z10_CCSURV    = %SUBST(CLP011:1:10)
+34   C                   EVAL      Z10_CCMOFU    =
+     C                             %INT(%SUBST(CLP012:1:1))
+168  C                   EVAL      Z10_CCDRAI    =
+     C                             %INT(%SUBST(CLP013:1:5))
+169  C                   EVAL      Z10_CCNGAN    =
+     C                             %INT(%SUBST(CLP014:1:1))
+170  C                   EVAL      Z10_CCDWA     =
+     C                             %DEC(%SUBST(CLP015:1:4):4:2)
+36   C                   EVAL      Z10_CCBUAR    =
+     C                             %DEC(%SUBST(CLP016:1:13):13:2)
+26   C                   EVAL      Z10_CCFREE    = %SUBST(CLP017:1:1)
+65   C                   EVAL      Z10_CCLOFF    = %SUBST(CLP018:1:4)
+145  C                   EVAL      Z10_CCDOBJ    = %SUBST(CLP019:1:1)
+14   C                   EVAL      Z10_CCPTYP    = %SUBST(CLP020:1:3)
+15   C                   EVAL      Z10_CCPUCD    = %SUBST(CLP021:1:3)
+109  C                   EVAL      Z10_CCPCOM    = %SUBST(CLP022:1:1)
+207  C                   EVAL      Z10_CCCNTA    =
+     C                             %DEC(%SUBST(CLP023:1:17):17:2)
+48   C                   EVAL      Z10_CCDCMV    =
+     C                             %DEC(%SUBST(CLP024:1:17):17:2)
+50   C                   EVAL      Z10_CCFSLV    =
+     C                             %DEC(%SUBST(CLP025:1:17):17:2)
+199  C                   EVAL      Z10_CFCOUN    = %SUBST(CLP026:1:3)
+161  C                   EVAL      Z10_CCLVO8    =
+     C                             %INT(%SUBST(CLP027:1:8))
+174  C                   EVAL      Z10_CCVDT8    =
+     C                             %INT(%SUBST(CLP028:1:8))
+43   C                   EVAL      Z10_CCDNV8    =
+     C                             %INT(%SUBST(CLP029:1:8))
+176  C                   EVAL      Z10_CCVCOD    = %SUBST(CLP030:1:3)
+175  C                   EVAL      Z10_CCVTYP    = %SUBST(CLP031:1:3)
+58   C                   EVAL      Z10_CCBOAI    = %SUBST(CLP032:1:4)
+180  C                   EVAL      Z10_CCBOAP    =
+     C                             %DEC(%SUBST(CLP033:1:11):11:9)
+177  C                   EVAL      Z10_CCBSEL    = %SUBST(CLP034:1:1)
+178  C                   EVAL      Z10_CCALPV    = %SUBST(CLP035:1:1)
+179  C                   EVAL      Z10_CCSLLC    = %SUBST(CLP036:1:1)
+211  C                   EVAL      Z10_CDBSLI    = %SUBST(CLP037:1:3)
+182  C                   EVAL      Z10_CFADFM    = %SUBST(CLP038:1:1)
+183  C                   EVAL      Z10_CFADTP    = %SUBST(CLP039:1:1)
+184  C                   EVAL      Z10_CFNA2     = %SUBST(CLP040:1:40)
+185  C                   EVAL      Z10_CFNA3     = %SUBST(CLP041:1:40)
+186  C                   EVAL      Z10_CFNA4     = %SUBST(CLP042:1:40)
+187  C                   EVAL      Z10_CFNA5     = %SUBST(CLP043:1:40)
+188  C                   EVAL      Z10_CFNA6     = %SUBST(CLP044:1:40)
+189  C                   EVAL      Z10_CFNA7     = %SUBST(CLP045:1:40)
+190  C                   EVAL      Z10_CFNA8     = %SUBST(CLP046:1:40)
+202  C                   EVAL      Z10_CCROWN_1  =
+     C                             %INT(%SUBST(CLP047:1:19))
+203  C                   EVAL      Z10_CCROWN_2  =
+     C                             %INT(%SUBST(CLP048:1:19))
+204  C                   EVAL      Z10_CCROWN_3  =
+     C                             %INT(%SUBST(CLP049:1:19))
+205  C                   EVAL      Z10_CCROWN_4  =
+     C                             %INT(%SUBST(CLP050:1:19))
+206  C                   EVAL      Z10_CCROWN_5  =
+     C                             %INT(%SUBST(CLP051:1:19))
+13   C                   EVAL      Z10_CCPCLS    = %SUBST(CLP052:1:1)
+16   C                   EVAL      Z10_CCMAST    = %SUBST(CLP053:1:2)
+18   C                   EVAL      Z10_CCCOUN    = %SUBST(CLP054:1:3)
+41   C                   EVAL      Z10_CCRSCI    = %SUBST(CLP055:1:1)
+44   C                   EVAL      Z10_CCFMVC    =
+     C                             %DEC(%SUBST(CLP056:1:17):17:2)
+56   C                   EVAL      Z10_CCMTMV    = %SUBST(CLP057:1:1)
+112  C                   EVAL      Z10_SHARE     = %SUBST(CLP058:1:1)
+117  C                   EVAL      Z10_CCAPRV    = %SUBST(CLP059:1:1)
+131  C                   EVAL      Z10_CCEXCI    = %SUBST(CLP060:1:1)
+133  C                   EVAL      Z10_CCEDRI    = %SUBST(CLP061:1:1)
+135  C                   EVAL      Z10_CCEMCI    = %SUBST(CLP062:1:1)
+158  C                   EVAL      Z10_CCGLBC    = %SUBST(CLP063:1:1)
+191  C                   EVAL      Z10_CFANA1    = %SUBST(CLP064:1:40)
+197  C                   EVAL      Z10_CFZIP     = %SUBST(CLP065:1:9)
+198  C                   EVAL      Z10_CFSTAT    = %SUBST(CLP066:1:3)
+212  C                   EVAL      Z10_CFDFC1    = %SUBST(CLP067:1:10)
+213  C                   EVAL      Z10_CFDFC2    = %SUBST(CLP068:1:10)
+192  C                   EVAL      Z10_CFANA2    = %SUBST(CLP069:1:40)
+3    C                   EVAL      Z10_CCDCID    =                              0 ???
+     C                             %INT(%SUBST(CLP070:1:19))
+4    C                   EVAL      Z10_CCDNAM    = %SUBST(CLP071:1:40)
+7    C                   EVAL      Z10_CCOSNM    = %SUBST(CLP072:1:20)
+8    C                   EVAL      Z10_CCDSTS    = %SUBST(CLP073:1:1)
+11   C                   EVAL      Z10_CCDSCA    = %SUBST(CLP074:1:5)
+12   C                   EVAL      Z10_CCDDSC    = %SUBST(CLP075:1:50)
+17   C                   EVAL      Z10_CCCOFR    = %SUBST(CLP076:1:10)
+19   C                   EVAL      Z10_CCPREX    = %SUBST(CLP077:1:3)
+21   C                   EVAL      Z10_CCCURR    = %SUBST(CLP078:1:4)
+22   C                   EVAL      Z10_CCMASN    = %SUBST(CLP079:1:20)
+24   C                   EVAL      Z10_CCTHLD    = %SUBST(CLP080:1:20)
+25   C                   EVAL      Z10_CCRELA    = %SUBST(CLP081:1:2)
+27   C                   EVAL      Z10_CCSRSL    = %SUBST(CLP082:1:1)
+28   C                   EVAL      Z10_CCSRH8    =
+     C                             %INT(%SUBST(CLP083:1:8))
+29   C                   EVAL      Z10_CCESCA    =
+     C                             %INT(%SUBST(CLP084:1:19))
+30   C                   EVAL      Z10_CCDDVT    = %SUBST(CLP085:1:1)
+31   C                   EVAL      Z10_CCDLOG    = %SUBST(CLP086:1:1)
+32   C                   EVAL      Z10_CCCATL    = %SUBST(CLP087:1:20)
+33   C                   EVAL      Z10_CCLIMT    = %SUBST(CLP088:1:50)
+35   C                   EVAL      Z10_CCLAND    =
+     C                             %DEC(%SUBST(CLP089:1:13):13:2)
+37   C                   EVAL      Z10_CCDAPP    = %SUBST(CLP090:1:40)
+38   C                   EVAL      Z10_CCDVRF    = %SUBST(CLP091:1:20)
+39   C                   EVAL      Z10_CCDVA8    =
+     C                             %INT(%SUBST(CLP092:1:8))
+40   C                   EVAL      Z10_CCRPPS    = %SUBST(CLP093:1:1)
+42   C                   EVAL      Z10_CCPRAB    = %SUBST(CLP094:1:1)
+45   C                   EVAL      Z10_CCDAPV    =
+     C                             %DEC(%SUBST(CLP095:1:17):17:2)
+46   C                   EVAL      Z10_CCFSVC    =
+     C                             %DEC(%SUBST(CLP096:1:17):17:2)
+47   C                   EVAL      Z10_CCLNDD    =
+     C                             %DEC(%SUBST(CLP097:1:17):17:2)
+49   C                   EVAL      Z10_CCBLDD    =
+     C                             %DEC(%SUBST(CLP098:1:17):17:2)
+51   C                   EVAL      Z10_CCOFFP    = %SUBST(CLP099:1:40)
+52   C                   EVAL      Z10_CCOFF8    =
+     C                             %INT(%SUBST(CLP100:1:8))
+53   C                   EVAL      Z10_CCOFFV    =
+     C                             %DEC(%SUBST(CLP101:1:17):17:2)
+54   C                   EVAL      Z10_CCPUR8    =
+     C                             %INT(%SUBST(CLP102:1:8))
+55   C                   EVAL      Z10_CCPAMT    =
+     C                             %DEC(%SUBST(CLP103:1:17):17:2)
+57   C                   EVAL      Z10_CCIMPD    =
+     C                             %DEC(%SUBST(CLP104:1:17):17:2)
+59   C                   EVAL      Z10_CCCMSG    = %SUBST(CLP105:1:1)
+60   C                   EVAL      Z10_CCINSF    = %SUBST(CLP106:1:1)
+61   C                   EVAL      Z10_CCREM1    = %SUBST(CLP107:1:60)
+62   C                   EVAL      Z10_CCAUT8    =
+     C                             %INT(%SUBST(CLP108:1:8))
+63   C                   EVAL      Z10_CCSOL     = %SUBST(CLP109:1:10)
+64   C                   EVAL      Z10_CCAUTN    = %SUBST(CLP110:1:20)
+66   C                   EVAL      Z10_CCAUTP    =
+     C                             %DEC(%SUBST(CLP111:1:17):17:2)
+67   C                   EVAL      Z10_CCPCD8    =
+     C                             %INT(%SUBST(CLP112:1:8))
+68   C                   EVAL      Z10_CCAGRS    = %SUBST(CLP113:1:20)
+69   C                   EVAL      Z10_CCAGR8    =
+     C                             %INT(%SUBST(CLP114:1:8))
+70   C                   EVAL      Z10_CCDRPR    =
+     C                             %DEC(%SUBST(CLP115:1:17):17:2)
+71   C                   EVAL      Z10_CCRAMT    =
+     C                             %DEC(%SUBST(CLP116:1:17):17:2)
+72   C                   EVAL      Z10_CCDQR8    =
+     C                             %INT(%SUBST(CLP117:1:8))
+73   C                   EVAL      Z10_CCDQRA    =
+     C                             %DEC(%SUBST(CLP118:1:17):17:2)
+74   C                   EVAL      Z10_CCDAS8    =
+     C                             %INT(%SUBST(CLP119:1:8))
+76   C                   EVAL      Z10_CCDASA    =
+     C                             %DEC(%SUBST(CLP120:1:17):17:2)
+78   C                   EVAL      Z10_CCLOC1    = %SUBST(CLP121:1:40)
+79   C                   EVAL      Z10_CCLOC2    = %SUBST(CLP122:1:40)
+80   C                   EVAL      Z10_CCLOC3    = %SUBST(CLP123:1:40)
+81   C                   EVAL      Z10_CCMUKM    = %SUBST(CLP124:1:40)
+82   C                   EVAL      Z10_CCLTCV    =
+     C                             %DEC(%SUBST(CLP125:1:11):11:9)
+83   C                   EVAL      Z10_CCPFSF    = %SUBST(CLP126:1:1)
+84   C                   EVAL      Z10_CCPFS8    =
+     C                             %INT(%SUBST(CLP127:1:8))
+85   C                   EVAL      Z10_CCOVAL    =
+     C                             %DEC(%SUBST(CLP128:1:17):17:2)
+86   C                   EVAL      Z10_CCDORG    =
+     C                             %DEC(%SUBST(CLP129:1:17):17:2)
+87   C                   EVAL      Z10_CCBVNA    = %SUBST(CLP130:1:40)
+88   C                   EVAL      Z10_CCOED8    =
+     C                             %INT(%SUBST(CLP131:1:8))
+89   C                   EVAL      Z10_CCSRD8    =
+     C                             %INT(%SUBST(CLP132:1:8))
+90   C                   EVAL      Z10_CCDRC8    =
+     C                             %INT(%SUBST(CLP133:1:8))
+91   C                   EVAL      Z10_CCTLE8    =
+     C                             %INT(%SUBST(CLP134:1:8))
+92   C                   EVAL      Z10_CCTEX8    =
+     C                             %INT(%SUBST(CLP135:1:8))
+93   C                   EVAL      Z10_CCSECT    = %SUBST(CLP136:1:10)
+94   C                   EVAL      Z10_CCTENT    =
+     C                             %INT(%SUBST(CLP137:1:3))
+95   C                   EVAL      Z10_CCBVAL    =
+     C                             %DEC(%SUBST(CLP138:1:17):17:2)
+96   C                   EVAL      Z10_CCBVD8    =
+     C                             %INT(%SUBST(CLP139:1:8))
+97   C                   EVAL      Z10_CCRED8    =
+     C                             %INT(%SUBST(CLP140:1:8))
+98   C                   EVAL      Z10_CCREV8    =
+     C                             %INT(%SUBST(CLP141:1:8))
+99   C                   EVAL      Z10_CCSAP8    =
+     C                             %INT(%SUBST(CLP142:1:8))
+100  C                   EVAL      Z10_CCSPE8    =
+     C                             %INT(%SUBST(CLP143:1:8))
+101  C                   EVAL      Z10_CCLPI8    =
+     C                             %INT(%SUBST(CLP144:1:8))
+102  C                   EVAL      Z10_CCRDBY    = %SUBST(CLP145:1:1)
+103  C                   EVAL      Z10_CCAMTR    =
+     C                             %DEC(%SUBST(CLP146:1:15):15:2)
+104  C                   EVAL      Z10_CCUSIZ    =
+     C                             %DEC(%SUBST(CLP147:1:11):11:2)
+105  C                   EVAL      Z10_CCPPUN    =
+     C                             %DEC(%SUBST(CLP148:1:11):11:2)
+106  C                   EVAL      Z10_CCCPSZ    =
+     C                             %INT(%SUBST(CLP149:1:4))
+107  C                   EVAL      Z10_CCPPSZ    =
+     C                             %INT(%SUBST(CLP150:1:5))
+108  C                   EVAL      Z10_CCNEWB    = %SUBST(CLP151:1:40)
+110  C                   EVAL      Z10_CCBSEC    = %SUBST(CLP152:1:6)
+111  C                   EVAL      Z10_CCRLSV    =
+     C                             %DEC(%SUBST(CLP153:1:17):17:2)
+113  C                   EVAL      Z10_CCNTTL    =
+     C                             %INT(%SUBST(CLP154:1:5))
+114  C                   EVAL      Z10_CCTTLC    = %SUBST(CLP155:1:5)
+115  C                   EVAL      Z10_CCSBDV    = %SUBST(CLP156:1:15)
+116  C                   EVAL      Z10_CCAMLG    = %SUBST(CLP157:1:15)
+118  C                   EVAL      Z10_MNCUID    = %SUBST(CLP158:1:10)
+119  C                   EVAL      Z10_MNCDT8    =
+     C                             %INT(%SUBST(CLP159:1:8))
+120  C                   EVAL      Z10_WMNCTIM   = %SUBST(CLP160:1:26)
+121  C                   EVAL      Z10_CCVALC    = %SUBST(CLP161:1:5)
+122  C                   EVAL      Z10_CCBCAR    = %SUBST(CLP162:1:4)
+123  C                   EVAL      Z10_WSUB      = %SUBST(CLP163:1:1)
+124  C                   EVAL      Z10_CCTOSB    =
+     C                             %DEC(%SUBST(CLP164:1:17):17:2)
+125  C                   EVAL      Z10_CCDIST    = %SUBST(CLP165:1:40)
+126  C                   EVAL      Z10_CCTOWN    = %SUBST(CLP166:1:40)
+127  C                   EVAL      Z10_CCSTAT    = %SUBST(CLP167:1:3)
+128  C                   EVAL      Z10_CCRIN1    = %SUBST(CLP168:1:50)
+129  C                   EVAL      Z10_CCRIN2    = %SUBST(CLP169:1:50)
+130  C                   EVAL      Z10_CCRIN3    = %SUBST(CLP170:1:50)
+132  C                   EVAL      Z10_CCEXCR    = %SUBST(CLP171:1:50)
+134  C                   EVAL      Z10_CCEDRR    = %SUBST(CLP172:1:50)
+136  C                   EVAL      Z10_CCEMCR    = %SUBST(CLP173:1:50)
+137  C                   EVAL      Z10_CCLETA    =
+     C                             %DEC(%SUBST(CLP174:1:13):13:2)
+138  C                   EVAL      Z10_CCHSED    =
+     C                             %DEC(%SUBST(CLP175:1:17):17:2)
+139  C                   EVAL      Z10_CCPAMD    =
+     C                             %DEC(%SUBST(CLP176:1:17):17:2)
+140  C                   EVAL      Z10_CCMCHD    =
+     C                             %DEC(%SUBST(CLP177:1:17):17:2)
+141  C                   EVAL      Z10_CCEQPD    =
+     C                             %DEC(%SUBST(CLP178:1:17):17:2)
+142  C                   EVAL      Z10_CCOELE    =
+     C                             %DEC(%SUBST(CLP179:1:17):17:2)
+143  C                   EVAL      Z10_CCOWTR    =
+     C                             %DEC(%SUBST(CLP180:1:17):17:2)
+144  C                   EVAL      Z10_CCOMGM    =
+     C                             %DEC(%SUBST(CLP181:1:17):17:2)
+146  C                   EVAL      Z10_CCAUFR    = %SUBST(CLP182:1:1)
+147  C                   EVAL      Z10_CCMAXC    =
+     C                             %DEC(%SUBST(CLP183:1:17):17:2)
+148  C                   EVAL      Z10_CCPFRQ    =
+     C                             %INT(%SUBST(CLP184:1:3))
+149  C                   EVAL      Z10_CCPFRC    = %SUBST(CLP185:1:1)
+150  C                   EVAL      Z10_CCDFFM    = %SUBST(CLP186:1:1)
+151  C                   EVAL      Z10_CCDVFR    =
+     C                             %INT(%SUBST(CLP187:1:3))
+152  C                   EVAL      Z10_CCDVFC    = %SUBST(CLP188:1:1)
+153  C                   EVAL      Z10_CCDEL8    =
+     C                             %INT(%SUBST(CLP189:1:8))
+154  C                   EVAL      Z10_CCDISP    =
+     C                             %DEC(%SUBST(CLP190:1:17):17:2)
+155  C                   EVAL      Z10_CCCOMT    = %SUBST(CLP191:1:1)
+156  C                   EVAL      Z10_CCINSA    =
+     C                             %DEC(%SUBST(CLP192:1:17):17:2)
+157  C                   EVAL      Z10_CCFXRD    =
+     C                             %INT(%SUBST(CLP193:1:8))
+159  C                   EVAL      Z10_CCDVFQ    =
+     C                             %INT(%SUBST(CLP194:1:3))
+160  C                   EVAL      Z10_CCDVCD    = %SUBST(CLP195:1:1)
+162  C                   EVAL      Z10_CCLVOT    =
+     C                             %INT(%SUBST(CLP196:1:6))
+163  C                   EVAL      Z10_CGPAMT    =
+     C                             %DEC(%SUBST(CLP197:1:17):17:2)
+164  C                   EVAL      Z10_CGPPCT    =
+     C                             %DEC(%SUBST(CLP198:1:11):11:9)
+165  C                   EVAL      Z10_CCGCOU    = %SUBST(CLP199:1:3)
+166  C                   EVAL      Z10_CCPJCD    = %SUBST(CLP200:1:10)
+167  C                   EVAL      Z10_CCDBRN    = %SUBST(CLP201:1:20)
+171  C                   EVAL      Z10_CCDUNT    = %SUBST(CLP202:1:25)
+172  C                   EVAL      Z10_CCDOWN    = %SUBST(CLP203:1:1)
+173  C                   EVAL      Z10_CCDRSV    =
+     C                             %DEC(%SUBST(CLP204:1:17):17:2)
+181  C                   EVAL      Z10_CDCOF8    =
+     C                             %INT(%SUBST(CLP205:1:8))
+193  C                   EVAL      Z10_CFFORN    = %SUBST(CLP206:1:1)
+194  C                   EVAL      Z10_CFBADA    = %SUBST(CLP207:1:1)
+195  C                   EVAL      Z10_CFRMKS    = %SUBST(CLP208:1:40)
+196  C                   EVAL      Z10_CFCITY    = %SUBST(CLP209:1:20)
+200  C                   EVAL      Z10_CFOWNT    = %SUBST(CLP210:1:10)
+201  C                   EVAL      Z10_CFSTY8    =
+     C                             %INT(%SUBST(CLP211:1:8))
+208  C                   EVAL      Z10_CCDEVP    = %SUBST(CLP212:1:7)
+209  C                   EVAL      Z10_CCAGCA    =
+     C                             %DEC(%SUBST(CLP213:1:17):17:2)
+210  C                   EVAL      Z10_CCAGCV    =
+     C                             %DEC(%SUBST(CLP214:1:17):17:2)
+214  C                   EVAL      Z10_CFDFC3    = %SUBST(CLP215:1:10)
+215  C                   EVAL      Z10_CFDFC4    = %SUBST(CLP216:1:10)
+217  C                   EVAL      Z10_WKCCFSLV  =
+     C                             %DEC(%SUBST(CLP217:1:17):17:2)
+218  C                   EVAL      Z10_WKCCDCMV  =
+     C                             %DEC(%SUBST(CLP218:1:17):17:2)
+219  C                   EVAL      Z10_WKCCDVFQ  =
+     C                             %INT(%SUBST(CLP219:1:3))
+220  C                   EVAL      Z10_WKCCDVCD  = %SUBST(CLP220:1:1)
+     C*
+5    C                   EVAL      IN__BKN       = Z10_CCBKN
+6    C                   EVAL      IN__BRN       = Z10_CCBRN
+     C*
+     C                   EXSR      SRGETHEADR
+     C                   MOVEL     MBHEADR       RECVHDR
+     C                   MOVEL     DS88209I      INSTRS
+     C                   CALLB     'CL88209'     HNDRPL
+     C                   MOVEL     SENDHDR       MBHEADR
+     C*
+     C                   IF        mhHDRIND      = BAD
+     C                   ROLBK
+     C                   MOVEL     OTSTRS        MBERROR
+     C                   EVAL      WERRORC       = meERCODE
+     C                   EVAL      WERRMSG       = 'CL88209:' + %TRIM(meERFLDN)
+     C                                           + meERDESC
+     C                   EVAL      WERRFLD       = *BLANKS
+     C                   MOVEL     'F'           WTXNSTS
+     C                   MOVEL     'F'           WTXNSTS_GOOD
+     C                   EXSR      SR_SUB_BAD
+     C                   ELSE
+     C*
+     C                   IF        mhHDRIND      = GOOD
+     C                   MOVEL     'S'           WTXNSTS
+     C                   MOVEL     OTSTRS        DS88209R
+     C*
+     C                   EVAL      WK_CCDCID     = Z11_CCDCID
+     C                   EXSR      SR_SUB_GOOD
+     C                   ENDIF
+     C                   ENDIF
+     C*
+     C                   ENDSR
+     C*------------------
+     C     SR_CL88207_PG BEGSR
+     C*Maintenance - CLM Collateral Guarantee
+     C                   EVAL      WERRORC       = *BLANKS
+     C                   EVAL      WERRFLD       = *BLANKS
+     C                   EVAL      WMSGDTA       = *BLANKS
+     C                   EVAL      WERRMSG       = *BLANKS
+     C                   CLEAR                   DS88207I
+     C*Map Fields
+     C                   CLEAR                   MBHEADR
+     C*
+2.1  C                   EVAL      Z12_CCDCAT    = %SUBST(CLP003:1:5)
+ 10  C                   EVAL      Z12_CCDCOD    = %SUBST(CLP004:1:10)
+ 5   C                   EVAL      Z12_CCBKN     =
+ 5   C                             %INT(%SUBST(CLP005:1:2))
+ 6   C                   EVAL      Z12_CCBRN     =
+ 6   C                             %INT(%SUBST(CLP006:1:5))
+ 7   C                   EVAL      Z12_CCCIFN    =
+ 7   C                             %INT(%SUBST(CLP007:1:19))
+ 15  C                   EVAL      Z12_CCCURR    = %SUBST(CLP008:1:4)
+ 26  C                   EVAL      Z12_CCGAMT    =
+     C                             %DEC(%SUBST(CLP009:1:17):17:2)
+ 27  C                   EVAL      Z12_CCGPCT    =
+     C                             %DEC(%SUBST(CLP010:1:11):11:9)
+ 23  C                   EVAL      Z12_CCCDT8    =
+     C                             %INT(%SUBST(CLP011:1:8))
+ 38  C                   EVAL      Z12_CCEF8D    =
+     C                             %INT(%SUBST(CLP012:1:8))
+ 24  C                   EVAL      Z12_CCEXP8    =
+     C                             %INT(%SUBST(CLP013:1:8))
+ 20  C                   EVAL      Z12_CCBOAI    = %SUBST(CLP014:1:4)
+ 21  C                   EVAL      Z12_CCBOAP    =
+     C                             %DEC(%SUBST(CLP015:1:11):11:9)
+ 31  C                   EVAL      Z12_CCBSEL    = %SUBST(CLP016:1:1)
+ 48  C                   EVAL      Z12_CCTOSB    =
+     C                             %DEC(%SUBST(CLP017:1:17):17:2)
+ 14  C                   EVAL      Z12_CCCOUN    = %SUBST(CLP018:1:3)
+ 19  C                   EVAL      Z12_CCMTMV    = %SUBST(CLP019:1:1)
+ 32  C                   EVAL      Z12_CCALPV    = %SUBST(CLP020:1:1)
+ 33  C                   EVAL      Z12_CCSLLC    = %SUBST(CLP021:1:1)
+ 46  C                   EVAL      Z12_CCAPRV    = %SUBST(CLP022:1:1)
+ 3   C                   EVAL      Z12_CCDCID    =                              0 ???
+     C                             %INT(%SUBST(CLP023:1:19))
+ 4   C                   EVAL      Z12_CCDNAM    = %SUBST(CLP024:1:40)
+ 8   C                   EVAL      Z12_CCOSNM    = %SUBST(CLP025:1:20)
+ 9   C                   EVAL      Z12_CCDSTS    = %SUBST(CLP026:1:1)
+ 12  C                   EVAL      Z12_CCDSCA    = %SUBST(CLP027:1:5)
+ 13  C                   EVAL      Z12_CCDDSC    = %SUBST(CLP028:1:50)
+ 16  C                   EVAL      Z12_CCGTYP    = %SUBST(CLP029:1:3)
+ 17  C                   EVAL      Z12_CCGRNM    = %SUBST(CLP030:1:20)
+ 18  C                   EVAL      Z12_CCRELA    = %SUBST(CLP031:1:2)
+ 22  C                   EVAL      Z12_CCINST    = %SUBST(CLP032:1:10)
+ 25  C                   EVAL      Z12_CCGTOS    = %SUBST(CLP033:1:4)
+ 28  C                   EVAL      Z12_CCFRW8    =
+ 28  C                             %INT(%SUBST(CLP034:1:8))
+ 29  C                   EVAL      Z12_CCCMSG    = %SUBST(CLP035:1:1)
+ 30  C                   EVAL      Z12_CCREM1    = %SUBST(CLP036:1:60)
+ 34  C                   EVAL      Z12_CCCUTD    = %SUBST(CLP037:1:40)
+ 35  C                   EVAL      Z12_CCGFR8    =
+ 35  C                             %INT(%SUBST(CLP038:1:8))
+ 36  C                   EVAL      Z12_CCTENT    =
+ 36  C                             %INT(%SUBST(CLP039:1:3))
+ 37  C                   EVAL      Z12_CCTENC    = %SUBST(CLP040:1:1)
+ 39  C                   EVAL      Z12_CCGRCE    =
+ 39  C                             %INT(%SUBST(CLP041:1:3))
+ 40  C                   EVAL      Z12_CCLTCV    =
+     C                             %DEC(%SUBST(CLP042:1:11):11:9)
+ 41  C                   EVAL      Z12_CCOVAL    =
+     C                             %DEC(%SUBST(CLP043:1:17):17:2)
+ 42  C                   EVAL      Z12_CCREV8    =
+ 42  C                             %INT(%SUBST(CLP044:1:8))
+ 43  C                   EVAL      Z12_CCBSEC    = %SUBST(CLP045:1:6)
+ 44  C                   EVAL      Z12_CCRLSV    =
+     C                             %DEC(%SUBST(CLP046:1:17):17:2)
+ 45  C                   EVAL      Z12_SHARE     = %SUBST(CLP047:1:1)
+ 47  C                   EVAL      Z12_CCBCAR    = %SUBST(CLP048:1:4)
+ 49  C                   EVAL      Z12_CCFXRD    =
+ 49  C                             %INT(%SUBST(CLP049:1:8))
+ 50  C                   EVAL      Z12_CCGLBC    = %SUBST(CLP050:1:1)
+ 51  C                   EVAL      Z12_CCVDT8    =
+ 51  C                             %INT(%SUBST(CLP051:1:8))
+ 52  C                   EVAL      Z12_CCDNV8    =
+ 52  C                             %INT(%SUBST(CLP052:1:8))
+ 53  C                   EVAL      Z12_CCDVFQ    =
+ 53  C                             %INT(%SUBST(CLP053:1:3))
+ 54  C                   EVAL      Z12_CCDVCD    = %SUBST(CLP054:1:1)
+ 55  C                   EVAL      Z12_CCLVO8    =
+ 55  C                             %INT(%SUBST(CLP055:1:8))
+ 56  C                   EVAL      Z12_CCLVOT    =
+ 56  C                             %INT(%SUBST(CLP056:1:6))
+ 57  C                   EVAL      Z12_CCGRTG    = %SUBST(CLP057:1:6)
+ 58  C                   EVAL      Z12_CCGRTA    = %SUBST(CLP058:1:10)
+ 59  C                   EVAL      Z12_CCGSPN    =
+     C                             %DEC(%SUBST(CLP059:1:17):17:2)
+ 60  C                   EVAL      Z12_CCGUPN    =
+     C                             %DEC(%SUBST(CLP060:1:17):17:2)
+ 61  C                   EVAL      Z12_CCGSGA    =
+     C                             %DEC(%SUBST(CLP061:1:17):17:2)
+ 62  C                   EVAL      Z12_CCGSGP    =
+     C                             %DEC(%SUBST(CLP062:1:11):11:9)
+ 63  C                   EVAL      Z12_CCGUGA    =
+     C                             %DEC(%SUBST(CLP063:1:17):17:2)
+ 64  C                   EVAL      Z12_CCGUGP    =
+     C                             %DEC(%SUBST(CLP064:1:11):11:9)
+ 65  C                   EVAL      Z12_CGPAMT    =
+     C                             %DEC(%SUBST(CLP065:1:17):17:2)
+ 66  C                   EVAL      Z12_CGPPCT    =
+     C                             %DEC(%SUBST(CLP066:1:11):11:9)
+ 67  C                   EVAL      Z12_CCGCOU    = %SUBST(CLP067:1:3)
+ 68  C                   EVAL      Z12_CUCGCP    =
+     C                             %DEC(%SUBST(CLP068:1:11):11:9)
+ 69  C                   EVAL      Z12_CCGFP8    =
+ 69  C                             %INT(%SUBST(CLP069:1:8))
+ 70  C                   EVAL      Z12_CCSCGC    =
+     C                             %DEC(%SUBST(CLP070:1:11):11:9)
+ 71  C                   EVAL      Z12_CCROWN_1  =
+ 71  C                             %INT(%SUBST(CLP071:1:19))
+ 72  C                   EVAL      Z12_CCROWN_2  =
+ 72  C                             %INT(%SUBST(CLP072:1:19))
+ 73  C                   EVAL      Z12_CCROWN_3  =
+ 73  C                             %INT(%SUBST(CLP073:1:19))
+ 74  C                   EVAL      Z12_CCROWN_4  =
+ 74  C                             %INT(%SUBST(CLP074:1:19))
+ 75  C                   EVAL      Z12_CCROWN_5  =
+ 75  C                             %INT(%SUBST(CLP075:1:19))
+ 76  C                   EVAL      Z12_MNCUID    = %SUBST(CLP076:1:10)
+ 77  C                   EVAL      Z12_MNCDT8    =
+ 77  C                             %INT(%SUBST(CLP077:1:8))
+ 78  C                   EVAL      Z12_WMNCTIM   = %SUBST(CLP078:1:26)
+ 79  C                   EVAL      Z12_CCVCOD    = %SUBST(CLP079:1:3)
+ 80  C                   EVAL      Z12_CCPFSF    = %SUBST(CLP080:1:1)
+ 81  C                   EVAL      Z12_CCPFS8    =
+ 81  C                             %INT(%SUBST(CLP081:1:8))
+     C*
+5    C                   EVAL      IN__BKN       = Z12_CCBKN
+6    C                   EVAL      IN__BRN       = Z12_CCBRN
+     C*
+     C                   EXSR      SRGETHEADR
+     C                   MOVEL     MBHEADR       RECVHDR
+     C                   MOVEL     DS88207I      INSTRS
+     C                   CALLB     'CL88207'     HNDRPL
+     C                   MOVEL     SENDHDR       MBHEADR
+     C*
+     C                   IF        mhHDRIND      = BAD
+     C                   ROLBK
+     C                   MOVEL     OTSTRS        MBERROR
+     C                   EVAL      WERRORC       = meERCODE
+     C                   EVAL      WERRMSG       = 'CL88207:' + %TRIM(meERFLDN)
+     C                                           + meERDESC
+     C                   EVAL      WERRFLD       = *BLANKS
+     C                   MOVEL     'F'           WTXNSTS
+     C                   MOVEL     'F'           WTXNSTS_GOOD
+     C                   EXSR      SR_SUB_BAD
+     C                   ELSE
+     C*
+     C                   IF        mhHDRIND      = GOOD
+     C                   MOVEL     'S'           WTXNSTS
+     C                   MOVEL     OTSTRS        DS88207R
+     C*
+     C                   EVAL      WK_CCDCID     = Z13_CCDCID
+     C                   EXSR      SR_SUB_GOOD
+     C                   ENDIF
+     C                   ENDIF
+     C*
+     C                   ENDSR
+     C*------------------
+     C     SR_CL88230_MN BEGSR
+     C*Maintenance - CLM Main Collateral
+     C                   EVAL      WERRORC       = *BLANKS
+     C                   EVAL      WERRFLD       = *BLANKS
+     C                   EVAL      WMSGDTA       = *BLANKS
+     C                   EVAL      WERRMSG       = *BLANKS
+     C                   CLEAR                   DS88230I
+     C*Map Fields
+     C                   CLEAR                   MBHEADR
+     C*
+2.1  C                   EVAL      Z14_CCDCAT    = %SUBST(CLP003:1:5)
+ 9   C                   EVAL      Z14_CCDCOD    = %SUBST(CLP004:1:10)
+ 5   C                   EVAL      Z14_CCBKN     =
+     C                             %INT(%SUBST(CLP005:1:2))
+ 6   C                   EVAL      Z14_CCBRN     =
+     C                             %INT(%SUBST(CLP006:1:5))
+ 16  C                   EVAL      Z14_CCCIFN    =
+     C                             %INT(%SUBST(CLP007:1:19))
+ 15  C                   EVAL      Z14_CCDCMV    =
+     C                             %DEC(%SUBST(CLP008:1:17):17:2)
+ 29  C                   EVAL      Z14_CCFSLV    =
+     C                             %DEC(%SUBST(CLP009:1:17):17:2)
+ 55  C                   EVAL      Z14_CCCNTA    =
+     C                             %DEC(%SUBST(CLP010:1:17):17:2)
+ 18  C                   EVAL      Z14_CCBOAI    = %SUBST(CLP011:1:4)
+ 38  C                   EVAL      Z14_CCBOAP    =
+     C                             %DEC(%SUBST(CLP012:1:11):11:9)
+ 37  C                   EVAL      Z14_CCBSEL    = %SUBST(CLP013:1:1)
+ 39  C                   EVAL      Z14_CCALPV    = %SUBST(CLP014:1:1)
+ 40  C                   EVAL      Z14_CCSLLC    = %SUBST(CLP015:1:1)
+ 27  C                   EVAL      Z14_CCLVO8    =
+ 27  C                             %INT(%SUBST(CLP016:1:8))
+ 42  C                   EVAL      Z14_CCVDT8    =
+ 42  C                             %INT(%SUBST(CLP017:1:8))
+ 24  C                   EVAL      Z14_CCDNV8    =
+ 24  C                             %INT(%SUBST(CLP018:1:8))
+ 44  C                   EVAL      Z14_CCVCOD    = %SUBST(CLP019:1:3)
+ 43  C                   EVAL      Z14_CCVTYP    = %SUBST(CLP020:1:3)
+ 45  C                   EVAL      Z14_CCROWN_1  =
+ 45  C                             %INT(%SUBST(CLP021:1:19))
+ 46  C                   EVAL      Z14_CCROWN_2  =
+ 46  C                             %INT(%SUBST(CLP022:1:19))
+ 47  C                   EVAL      Z14_CCROWN_3  =
+ 47  C                             %INT(%SUBST(CLP023:1:19))
+ 48  C                   EVAL      Z14_CCROWN_4  =
+ 48  C                             %INT(%SUBST(CLP024:1:19))
+ 49  C                   EVAL      Z14_CCROWN_5  =
+ 49  C                             %INT(%SUBST(CLP025:1:19))
+ 50  C                   EVAL      Z14_CCSCOL_1  =
+ 50  C                             %INT(%SUBST(CLP026:1:19))
+ 51  C                   EVAL      Z14_CCSCOL_2  =
+ 51  C                             %INT(%SUBST(CLP027:1:19))
+ 52  C                   EVAL      Z14_CCSCOL_3  =
+ 52  C                             %INT(%SUBST(CLP028:1:19))
+ 53  C                   EVAL      Z14_CCSCOL_4  =
+ 53  C                             %INT(%SUBST(CLP029:1:19))
+ 54  C                   EVAL      Z14_CCSCOL_5  =
+ 54  C                             %INT(%SUBST(CLP030:1:19))
+     C                   IF        ZZ            > 0
+ 50  C                   EVAL      Z14_CCSCOL_1  = Z#CCDCID(1)
+ 51  C                   EVAL      Z14_CCSCOL_2  = Z#CCDCID(2)
+ 52  C                   EVAL      Z14_CCSCOL_3  = Z#CCDCID(3)
+ 53  C                   EVAL      Z14_CCSCOL_4  = Z#CCDCID(4)
+ 54  C                   EVAL      Z14_CCSCOL_5  = Z#CCDCID(5)
+     C                   ENDIF
+ 41  C                   EVAL      Z14_WCCDSCC   = %SUBST(CLP038:1:5)
+ 13  C                   EVAL      Z14_CCCOUN    = %SUBST(CLP039:1:3)
+ 14  C                   EVAL      Z14_CCCURR    = %SUBST(CLP040:1:4)
+ 17  C                   EVAL      Z14_CCMTMV    = %SUBST(CLP041:1:1)
+ 20  C                   EVAL      Z14_CCAPRV    = %SUBST(CLP042:1:1)
+ 32  C                   EVAL      Z14_CCDCID    =                              0 add
+ 32  C                             %INT(%SUBST(CLP048:1:19))                    x chg
+ 48  C                   EVAL      Z14_CCDNAM    = %SUBST(CLP049:1:40)
+ 78  C                   EVAL      Z14_CCOSNM    = %SUBST(CLP050:1:20)
+ 88  C                   EVAL      Z14_CCDSTS    = %SUBST(CLP051:1:1)
+ 11  C                   EVAL      Z14_CCDSCA    = %SUBST(CLP052:1:5)
+ 12  C                   EVAL      Z14_CCDDSC    = %SUBST(CLP053:1:50)
+ 19  C                   EVAL      Z14_CCREM1    = %SUBST(CLP054:1:60)
+ 21  C                   EVAL      Z14_MNCUID    = %SUBST(CLP055:1:10)
+ 22  C                   EVAL      Z14_MNCDT8    =
+ 22  C                             %INT(%SUBST(CLP056:1:8))
+ 23  C                   EVAL      Z14_WMNCTIM   = %SUBST(CLP057:1:26)
+ 25  C                   EVAL      Z14_CCDVFQ    =
+ 25  C                             %INT(%SUBST(CLP058:1:3))
+ 26  C                   EVAL      Z14_CCDVCD    = %SUBST(CLP059:1:1)
+ 28  C                   EVAL      Z14_CCFMVC    =
+     C                             %DEC(%SUBST(CLP060:1:17):17:2)
+ 30  C                   EVAL      Z14_CCFSVC    =
+     C                             %DEC(%SUBST(CLP061:1:17):17:2)
+ 31  C                   EVAL      Z14_CCFDRD    =
+     C                             %DEC(%SUBST(CLP062:1:17):17:2)
+ 32  C                   EVAL      Z14_CCPAMT    =
+     C                             %DEC(%SUBST(CLP063:1:17):17:2)
+ 33  C                   EVAL      Z14_CCTRAM    =
+     C                             %DEC(%SUBST(CLP064:1:17):17:2)
+ 34  C                   EVAL      Z14_CCGAMT    =
+     C                             %DEC(%SUBST(CLP065:1:17):17:2)
+ 35  C                   EVAL      Z14_CCEPDA    =
+     C                             %DEC(%SUBST(CLP066:1:17):17:2)
+ 36  C                   EVAL      Z14_CCLVOT    =
+ 36  C                             %INT(%SUBST(CLP067:1:6))
+ 56  C                   EVAL      Z14_CCAGCA    =
+     C                             %DEC(%SUBST(CLP068:1:17):17:2)
+ 57  C                   EVAL      Z14_CCAGCV    =
+     C                             %DEC(%SUBST(CLP069:1:17):17:2)
+ 58  C                   EVAL      Z14_WKCCFSLV  =
+     C                             %DEC(%SUBST(CLP070:1:17):17:2)
+ 59  C                   EVAL      Z14_WKCCDCMV  =
+     C                             %DEC(%SUBST(CLP071:1:17):17:2)
+ 60  C                   EVAL      Z14_WKCCDVFQ  =
+ 60  C                             %INT(%SUBST(CLP072:1:3))
+ 61  C                   EVAL      Z14_WKCCDVCD  = %SUBST(CLP073:1:1)
+     C*
+5    C                   EVAL      IN__BKN       = Z14_CCBKN
+6    C                   EVAL      IN__BRN       = Z14_CCBRN
+     C*
+     C                   EXSR      SRGETHEADR
+T1002C*T1003             IF        Z14_CCDCID    = 0
+T1002C                   IF        Z14_CCDCID    = 0
+T1002C*T1003             EVAL      mhHDACCD      = 'A'
+T1002C*T1003             ELSE
+T1002C*T1003             EVAL      mhHDACCD      = 'C'
+T1002C*T1003             ENDIF
+T1002C**                 MOVEL(P)  'AP'          MHHDTXMD
+     C                   MOVEL     MBHEADR       RECVHDR
+     C                   MOVEL     DS88230I      INSTRS
+     C                   CALLB     'CL88230'     HNDRPL
+T1002C                   MOVEL(P)  *BLANK        MHHDTXMD
+     C                   MOVEL     SENDHDR       MBHEADR
+     C*
+     C                   IF        mhHDRIND      = BAD
+     C                   ROLBK
+     C                   MOVEL     OTSTRS        MBERROR
+     C                   EVAL      WERRORC       = meERCODE
+     C                   EVAL      WERRMSG       = 'CL88230:' + %TRIM(meERFLDN)
+     C                                           + meERDESC
+     C                   EVAL      WERRFLD       = *BLANKS
+     C                   MOVEL     'F'           WTXNSTS
+     C                   MOVEL     'F'           WTXNSTS_GOOD
+     C                   EXSR      SR_SUB_BAD
+     C                   ELSE
+     C*
+     C                   IF        mhHDRIND      = GOOD
+     C                   MOVEL     'S'           WTXNSTS
+     C                   MOVEL     OTSTRS        DS88230R
+     C*
+T1001C                   MOVEL(P)  *OFF          WK_UPDATE_FILE
+     C                   EVAL      WK_CCDCID     = Z15_CCDCID
+     C                   EXSR      SR_SUB_GOOD
+T1001C                   MOVEL(P)  *ON           WK_UPDATE_FILE
+     C                   ENDIF
+     C                   ENDIF
+T1003C*
+T1003C                   ELSE
+T1003C                   EXSR      SR_CL88241_MN
+T1003C                   MOVEL     'N'           WK_BAD
+T1003C                   ENDIF
+     C*
+     C                   ENDSR
+T1003C*------------------
+T1003C     SR_CL88241_MN BEGSR
+T1003C*Maintenance - CLM Main and Sub coll. linkage
+T1003C*
+T1002C                   Z-ADD     Z14_CCSCOL_1  P#CCDCID(1)
+T1002C                   Z-ADD     Z14_CCSCOL_2  P#CCDCID(2)
+T1002C                   Z-ADD     Z14_CCSCOL_3  P#CCDCID(3)
+T1002C                   Z-ADD     Z14_CCSCOL_4  P#CCDCID(4)
+T1002C                   Z-ADD     Z14_CCSCOL_5  P#CCDCID(5)
+T1003C*
+T1003C     1             DO        5             PP
+T1003C                   IF        P#CCDCID(PP)  = 0
+T1003C                   ITER
+T1003C                   ENDIF
+T1003C*
+T1003C                   EVAL      WERRORC       = *BLANKS
+T1003C                   EVAL      WERRFLD       = *BLANKS
+T1003C                   EVAL      WMSGDTA       = *BLANKS
+T1003C                   EVAL      WERRMSG       = *BLANKS
+T1003C                   CLEAR                   DS88241I
+T1003C*Map Fields
+T1003C                   CLEAR                   MBHEADR
+T1003C*
+T1003C                   IF        P#CCDCID(PP)  <> 0
+T1003C                   EVAL      Z38_CCMCID    = Z14_CCDCID
+T1003C                   EVAL      Z38_CCSCID    = P#CCDCID(PP)
+T1003C*
+T1003C                   EXSR      SRGETHEADR
+T1003C                   EVAL      mhHDVFMT      = 'YNYYYYY'
+T1003C                   MOVEL     MBHEADR       RECVHDR
+T1003C                   MOVEL     DS88241I      INSTRS
+T1003C                   CALLB     'CL88241'     HNDRPL
+T1003C                   MOVEL     SENDHDR       MBHEADR
+T1003C*
+T1003C                   IF        mhHDRIND      = BAD
+T1003C                   ROLBK
+T1003C                   MOVEL     OTSTRS        MBERROR
+T1003C                   EVAL      WERRORC       = meERCODE
+T1003C                   EVAL      WERRMSG       = 'CL88241:' + %TRIM(meERFLDN)
+T1003C                                           + meERDESC
+T1003C                   EVAL      WERRFLD       = *BLANKS
+T1003C                   MOVEL     'F'           WTXNSTS
+T1003C                   MOVEL     'F'           WTXNSTS_GOOD
+T1003C                   MOVEL     'Y'           WK_BAD
+T1003C                   ELSE
+T1003C*
+T1003C                   IF        mhHDRIND      = GOOD
+T1003C                   MOVEL     'S'           WTXNSTS
+T1003C                   MOVEL     OTSTRS        DS88241R
+T1003C*
+T1003C                   ENDIF
+T1003C                   ENDIF
+T1003C*
+T1003C                   ENDIF
+T1003C                   ENDDO
+T1003C*
+T1003C                   IF        WK_BAD        = 'Y'
+T1003C                   EXSR      SR_SUB_BAD
+T1003C                   ELSE
+T1003C*
+T1003C                   MOVEL(P)  *OFF          WK_UPDATE_FILE
+T1003C                   EVAL      Z15_CCDCID    = Z39_CCMCID
+T1003C                   EVAL      WK_CCDCID     = Z39_CCMCID
+T1003C                   EXSR      SR_SUB_GOOD
+T1003C                   MOVEL(P)  *ON           WK_UPDATE_FILE
+T1003C                   ENDIF
+T1003C*
+T1003C                   ENDSR
+     C*------------------
+     C     SR_CL88236_MN BEGSR
+     C*Maintenance - CLM Collateral Address
+     C*
+     C                   EVAL      WERRORC       = *BLANKS
+     C                   EVAL      WERRFLD       = *BLANKS
+     C                   EVAL      WMSGDTA       = *BLANKS
+     C                   EVAL      WERRMSG       = *BLANKS
+     C                   CLEAR                   DS88236I
+     C*Map Fields
+     C                   CLEAR                   MBHEADR
+     C*
+ 61  C                   EVAL      Z16_CCDCID    = Z15_CCDCID
+ 62  C                   EVAL      Z16_CFADFM    = %SUBST(CLP031:1:1)
+ 63  C                   EVAL      Z16_CFADTP    = %SUBST(CLP032:1:1)
+ 64  C                   EVAL      Z16_CFNA2     = %SUBST(CLP033:1:40)
+ 65  C                   EVAL      Z16_CFNA3     = %SUBST(CLP034:1:40)
+ 66  C                   EVAL      Z16_CFNA4     = %SUBST(CLP035:1:40)
+ 67  C                   EVAL      Z16_CFNA5     = %SUBST(CLP036:1:40)
+ 68  C                   EVAL      Z16_CFNA6     = %SUBST(CLP037:1:40)
+ 73  C                   EVAL      Z16_CFDFC1    = %SUBST(CLP043:1:10)
+ 74  C                   EVAL      Z16_CFDFC2    = %SUBST(CLP044:1:10)
+ 81  C                   EVAL      Z16_CFZIP     = %SUBST(CLP045:1:9)
+ 82  C                   EVAL      Z16_CFSTAT    = %SUBST(CLP046:1:3)
+ 83  C                   EVAL      Z16_CFCOUN    = %SUBST(CLP047:1:3)
+ 69  C                   EVAL      Z16_CFNA7     = %SUBST(CLP074:1:40)
+ 70  C                   EVAL      Z16_CFNA8     = %SUBST(CLP075:1:40)
+ 71  C                   EVAL      Z16_CFANA1    = %SUBST(CLP076:1:40)
+ 72  C                   EVAL      Z16_CFANA2    = %SUBST(CLP077:1:40)
+ 75  C                   EVAL      Z16_CFDFC3    = %SUBST(CLP078:1:10)
+ 76  C                   EVAL      Z16_CFDFC4    = %SUBST(CLP079:1:10)
+ 77  C                   EVAL      Z16_CFFORN    = %SUBST(CLP080:1:1)
+ 78  C                   EVAL      Z16_CFBADA    = %SUBST(CLP081:1:1)
+ 79  C                   EVAL      Z16_CFRMKS    = %SUBST(CLP082:1:40)
+ 80  C                   EVAL      Z16_CFCITY    = %SUBST(CLP083:1:20)
+ 84  C                   EVAL      Z16_CFOWNT    = %SUBST(CLP084:1:10)
+ 85  C                   EVAL      Z16_CFSTY8    =
+ 85  C                             %INT(%SUBST(CLP085:1:8))
+     C*
+     C                   EXSR      SRGETHEADR
+     C                   MOVEL     MBHEADR       RECVHDR
+     C                   MOVEL     DS88236I      INSTRS
+     C                   CALLB     'CL88236'     HNDRPL
+     C                   MOVEL     SENDHDR       MBHEADR
+     C*
+     C                   IF        mhHDRIND      = BAD
+???  C                   ROLBK
+     C                   MOVEL     OTSTRS        MBERROR
+     C                   EVAL      WERRORC       = meERCODE
+     C                   EVAL      WERRMSG       = 'CL88236:' + %TRIM(meERFLDN)
+     C                                           + meERDESC
+     C                   EVAL      WERRFLD       = *BLANKS
+     C                   MOVEL     'F'           WTXNSTS
+     C                   MOVEL     'F'           WTXNSTS_GOOD
+     C                   EXSR      SR_SUB_BAD
+     C                   ELSE
+     C*
+     C                   IF        mhHDRIND      = GOOD
+     C                   MOVEL     'S'           WTXNSTS
+     C                   MOVEL     OTSTRS        DS88236R
+     C*
+     C                   EXSR      SR_SUB_GOOD
+     C                   ENDIF
+     C                   ENDIF
+     C*
+     C                   ENDSR
+     C*------------------
+     C     SR_CL88500_CT BEGSR
+     C*Maintenance - CLM Collateral Contract
+     C                   EVAL      WERRORC       = *BLANKS
+     C                   EVAL      WERRFLD       = *BLANKS
+     C                   EVAL      WMSGDTA       = *BLANKS
+     C                   EVAL      WERRMSG       = *BLANKS
+     C                   CLEAR                   DS88500I
+     C*Map Fields
+     C                   CLEAR                   MBHEADR
+     C*
+ 3   C                   EVAL      Z18_CCONID    =
+     C                             %INT(%SUBST(CLP003:1:19))
+ 4   C                   EVAL      Z18_CCONRN    = %SUBST(CLP004:1:20)
+ 5   C                   EVAL      Z18_CCONTY    = %SUBST(CLP005:1:1)
+ 6   C                   EVAL      Z18_CCOND8    =
+ 8   C                             %INT(%SUBST(CLP006:1:8))
+ 7   C                   EVAL      Z18_CCONCR    = %SUBST(CLP007:1:4)
+ 8   C                   EVAL      Z18_CCONAM    =
+     C                             %DEC(%SUBST(CLP008:1:17):17:2)
+ 9   C                   EVAL      Z18_CTAGCA    =
+     C                             %DEC(%SUBST(CLP009:1:17):17:2)
+ 10  C                   EVAL      Z18_CCONST    = %SUBST(CLP010:1:1)
+ 11  C                   EVAL      Z18_CCONS8    =
+     C                             %INT(%SUBST(CLP011:1:8))
+ 12  C                   EVAL      Z18_CCONCA    = %SUBST(CLP012:1:5)
+ 13  C                   EVAL      Z18_CCONCH    =
+     C                             %INT(%SUBST(CLP013:1:1))
+ 14  C                   EVAL      Z18_CCONRG    = %SUBST(CLP014:1:20)
+ 15  C                   EVAL      Z18_CCONRK    =
+     C                             %INT(%SUBST(CLP015:1:2))
+ 16  C                   EVAL      Z18_CCONPC    = %SUBST(CLP016:1:40)
+ 17  C                   EVAL      Z18_CCONRM    = %SUBST(CLP017:1:60)
+ 18  C                   EVAL      Z18_WCOLVAL   =
+     C                             %DEC(%SUBST(CLP018:1:17):17:2)
+ 19  C                   EVAL      Z18_CCDCID_1  =
+     C                             %INT(%SUBST(CLP019:1:19))
+ 20  C                   EVAL      Z18_CCDCID_2  =
+     C                             %INT(%SUBST(CLP020:1:19))
+ 21  C                   EVAL      Z18_CCDCID_3  =
+     C                             %INT(%SUBST(CLP021:1:19))
+ 22  C                   EVAL      Z18_CCDCID_4  =
+     C                             %INT(%SUBST(CLP022:1:19))
+ 23  C                   EVAL      Z18_CCDCID_5  =
+     C                             %INT(%SUBST(CLP023:1:19))
+     C*
+     C                   IF        QQ            > 0
+     C                   EVAL      Z18_CCDCID_1  = S#CCDCID(1)
+     C                   EVAL      Z18_CCDCID_2  = S#CCDCID(2)
+     C                   EVAL      Z18_CCDCID_3  = S#CCDCID(3)
+     C                   EVAL      Z18_CCDCID_4  = S#CCDCID(4)
+     C                   EVAL      Z18_CCDCID_5  = S#CCDCID(5)
+     C                   ENDIF
+     C*
+     C                   IF        USE_DIM_MAIN  = *ON
+     C                   EVAL      Z18_CCDCID_1  = M#CCDCID(1)
+     C                   EVAL      Z18_CCDCID_2  = M#CCDCID(2)
+     C                   EVAL      Z18_CCDCID_3  = M#CCDCID(3)
+     C                   EVAL      Z18_CCDCID_4  = M#CCDCID(4)
+     C                   EVAL      Z18_CCDCID_5  = M#CCDCID(5)
+     C                   ENDIF
+     C*
+     C                   EXSR      SRGETHEADR
+     C                   MOVEL     MBHEADR       RECVHDR
+     C                   MOVEL     DS88500I      INSTRS
+     C                   CALLB     'CL88500'     HNDRPL
+     C                   MOVEL     SENDHDR       MBHEADR
+     C*
+     C                   IF        mhHDRIND      = BAD
+     C                   ROLBK
+     C                   MOVEL     OTSTRS        MBERROR
+     C                   EVAL      WERRORC       = meERCODE
+     C                   EVAL      WERRMSG       = 'CL88500:' + %TRIM(meERFLDN)
+     C                                           + meERDESC
+     C                   EVAL      WERRFLD       = *BLANKS
+     C                   MOVEL     'F'           WTXNSTS
+     C                   MOVEL     'F'           WTXNSTS_GOOD
+     C                   EXSR      SR_SUB_BAD
+     C                   ELSE
+     C*
+     C                   IF        mhHDRIND      = GOOD
+     C                   MOVEL     'S'           WTXNSTS
+     C                   MOVEL     OTSTRS        DS88500R
+     C*
+     C                   EVAL      WK_CCONID     = Z19_CCONID
+     C                   EXSR      SR_SUB_GOOD
+     C                   ENDIF
+     C                   ENDIF
+     C*
+     C                   ENDSR
+     C*------------------
+     C     SR_CL88505_CF BEGSR
+     C*Contract & Facility Linkage S/F by Contract ID
+     C                   EVAL      WERRORC       = *BLANKS
+     C                   EVAL      WERRFLD       = *BLANKS
+     C                   EVAL      WMSGDTA       = *BLANKS
+     C                   EVAL      WERRMSG       = *BLANKS
+     C                   CLEAR                   DS88505I
+     C*Map Fields
+     C                   CLEAR                   MBHEADR
+     C*
+ 3   C                   EVAL      Z20_COAPNO    =
+     C                             %INT(%SUBST(CLP003:1:19))
+ 4   C                   EVAL      Z20_AFFCDE    = %SUBST(CLP004:1:10)
+ 5   C                   EVAL      Z20_AFFAMT    =
+     C                             %DEC(%SUBST(CLP005:1:17):17:2)
+ 6   C                   EVAL      Z20_AFLIMT    =
+     C                             %DEC(%SUBST(CLP006:1:17):17:2)
+ 7   C                   EVAL      Z20_AFSTAT    = %SUBST(CLP007:1:1)
+ 8   C                   EVAL      Z20_AFLEVL    =
+     C                             %INT(%SUBST(CLP008:1:1))
+ 9   C                   EVAL      Z20_AFCIFN    =
+     C                             %INT(%SUBST(CLP009:1:19))
+ 10  C                   EVAL      Z20_CFSNME    = %SUBST(CLP010:1:20)
+ 11  C                   EVAL      Z20_CCDPCT    =
+     C                             %DEC(%SUBST(CLP011:1:11):11:9)
+ 12  C                   EVAL      Z20_CCDAMT    =
+     C                             %DEC(%SUBST(CLP012:1:17):17:2)
+ 13  C                   EVAL      Z20_CCDPCD    =
+     C                             %DEC(%SUBST(CLP013:1:11):11:9)
+ 14  C                   EVAL      Z20_CCDAMD    =
+     C                             %DEC(%SUBST(CLP014:1:17):17:2)
+ 15  C                   EVAL      Z20_AFCUR     = %SUBST(CLP015:1:4)
+ 16  C                   EVAL      Z20_CCONID    =
+     C                             %INT(%SUBST(CLP016:1:19))
+     C                   IF        WK_CCONID     <> 0
+ 16  C                   EVAL      Z20_CCONID    = WK_CCONID
+     C                   ENDIF
+ 17  C                   EVAL      Z20_COAPNO_1  =
+     C                             %INT(%SUBST(CLP017:1:19))
+ 18  C                   EVAL      Z20_COAPNO_2  =
+     C                             %INT(%SUBST(CLP018:1:19))
+ 19  C                   EVAL      Z20_COAPNO_3  =
+     C                             %INT(%SUBST(CLP019:1:19))
+ 20  C                   EVAL      Z20_COAPNO_4  =
+     C                             %INT(%SUBST(CLP020:1:19))
+ 21  C                   EVAL      Z20_COAPNO_5  =
+     C                             %INT(%SUBST(CLP021:1:19))
+ 22  C                   EVAL      Z20_CCDPCT_1  =
+     C                             %DEC(%SUBST(CLP022:1:11):11:9)
+ 23  C                   EVAL      Z20_CCDPCT_2  =
+     C                             %DEC(%SUBST(CLP023:1:11):11:9)
+ 24  C                   EVAL      Z20_CCDPCT_3  =
+     C                             %DEC(%SUBST(CLP024:1:11):11:9)
+ 25  C                   EVAL      Z20_CCDPCT_4  =
+     C                             %DEC(%SUBST(CLP025:1:11):11:9)
+ 26  C                   EVAL      Z20_CCDPCT_5  =
+     C                             %DEC(%SUBST(CLP026:1:11):11:9)
+ 27  C                   EVAL      Z20_CCDAMT_1  =
+     C                             %DEC(%SUBST(CLP027:1:17):17:2)
+ 28  C                   EVAL      Z20_CCDAMT_2  =
+     C                             %DEC(%SUBST(CLP028:1:17):17:2)
+ 29  C                   EVAL      Z20_CCDAMT_3  =
+     C                             %DEC(%SUBST(CLP029:1:17):17:2)
+ 30  C                   EVAL      Z20_CCDAMT_4  =
+     C                             %DEC(%SUBST(CLP030:1:17):17:2)
+ 31  C                   EVAL      Z20_CCDAMT_5  =
+     C                             %DEC(%SUBST(CLP031:1:17):17:2)
+ 32  C                   EVAL      Z20_CCDPCD_1  =
+     C                             %DEC(%SUBST(CLP032:1:11):11:9)
+ 33  C                   EVAL      Z20_CCDPCD_2  =
+     C                             %DEC(%SUBST(CLP033:1:11):11:9)
+ 34  C                   EVAL      Z20_CCDPCD_3  =
+     C                             %DEC(%SUBST(CLP034:1:11):11:9)
+ 35  C                   EVAL      Z20_CCDPCD_4  =
+     C                             %DEC(%SUBST(CLP035:1:11):11:9)
+ 36  C                   EVAL      Z20_CCDPCD_5  =
+     C                             %DEC(%SUBST(CLP036:1:11):11:9)
+ 37  C                   EVAL      Z20_CCDAMD_1  =
+     C                             %DEC(%SUBST(CLP037:1:17):17:2)
+ 38  C                   EVAL      Z20_CCDAMD_2  =
+     C                             %DEC(%SUBST(CLP038:1:17):17:2)
+ 39  C                   EVAL      Z20_CCDAMD_3  =
+     C                             %DEC(%SUBST(CLP039:1:17):17:2)
+ 40  C                   EVAL      Z20_CCDAMD_4  =
+     C                             %DEC(%SUBST(CLP040:1:17):17:2)
+ 41  C                   EVAL      Z20_CCDAMD_5  =
+     C                             %DEC(%SUBST(CLP041:1:17):17:2)
+     C*
+     C                   EXSR      SRGETHEADR
+     C                   MOVEL     MBHEADR       RECVHDR
+     C                   MOVEL     DS88505I      INSTRS
+     C                   CALLB     'CL88505'     HNDRPL
+     C                   MOVEL     SENDHDR       MBHEADR
+     C*
+     C                   IF        mhHDRIND      = BAD
+     C                   ROLBK
+     C                   MOVEL     OTSTRS        MBERROR
+     C                   EVAL      WERRORC       = meERCODE
+     C                   EVAL      WERRMSG       = 'CL88505:' + %TRIM(meERFLDN)
+     C                                           + meERDESC
+     C                   EVAL      WERRFLD       = *BLANKS
+     C                   MOVEL     'F'           WTXNSTS
+     C                   MOVEL     'F'           WTXNSTS_GOOD
+     C                   EXSR      SR_SUB_BAD
+     C                   ELSE
+     C*
+     C                   IF        mhHDRIND      = GOOD
+     C                   MOVEL     'S'           WTXNSTS
+     C                   MOVEL     OTSTRS        DS88505R
+     C*
+     C                   EXSR      SR_SUB_GOOD
+     C                   ENDIF
+     C                   ENDIF
+     C*
+     C                   ENDSR
+     C*------------------
+     C     SR_CL88210_STKBEGSR
+     C*Maintenance - CLM Collateral Stock
+     C                   EVAL      WERRORC       = *BLANKS
+     C                   EVAL      WERRFLD       = *BLANKS
+     C                   EVAL      WMSGDTA       = *BLANKS
+     C                   EVAL      WERRMSG       = *BLANKS
+     C                   CLEAR                   DS88210I
+     C*Map Fields
+     C                   CLEAR                   MBHEADR
+     C*
+2.1  C                   EVAL      Z22_CCDCAT    = %SUBST(CLP003:1:5)
+9    C                   EVAL      Z22_CCDCOD    = %SUBST(CLP004:1:10)
+5    C                   EVAL      Z22_CCBKN     =
+     C                                        %INT(%SUBST(CLP005:1:2))
+6    C                   EVAL      Z22_CCBRN     =
+     C                                        %INT(%SUBST(CLP006:1:5))
+19   C                   EVAL      Z22_CCCIFN    =
+     C                                        %INT(%SUBST(CLP007:1:19))
+T1004C                   EVAL      Z22_CCDSID    = %SUBST(CLP008:1:12)
+T1004C                   EVAL      Z22_CCDSHR    =
+T1004C                                        %INT(%SUBST(CLP009:1:13))
+T1004C                   EVAL      Z22_CCBOWN    = %SUBST(CLP010:1:40)
+T1004C                   EVAL      Z22_CCSSEQ1   =
+T1004C                                        %INT(%SUBST(CLP011:1:3))
+T1004C                   EVAL      Z22_CCSCRN1   = %SUBST(CLP012:1:20)
+T1004C                   EVAL      Z22_CCSSRF1   =
+T1004C                                        %INT(%SUBST(CLP013:1:12))
+T1004C                   EVAL      Z22_CCSSRT1   =
+T1004C                                        %INT(%SUBST(CLP014:1:12))
+T1004C                   EVAL      Z22_CCSQUA1   =
+T1004C                                        %INT(%SUBST(CLP015:1:13))
+T1004C                   EVAL      Z22_CCOSNM    = %SUBST(CLP016:1:20)
+T1004C                   EVAL      Z22_CCDCMV    =
+T1004C                                        %DEC(%SUBST(CLP017:1:19):17:2)
+T1004C                   EVAL      Z22_CCBOAI    = %SUBST(CLP018:1:4)
+T1004C                   EVAL      Z22_CCREM1    = %SUBST(CLP019:1:60)
+T1004C                   EVAL      Z22_SHARE     = %SUBST(CLP020:1:1)
+T1004C                   EVAL      Z22_CNEXCH    = %SUBST(CLP021:1:5)
+T1004C                   EVAL      Z22_CNLSPR    =
+T1004C                                        %DEC(%SUBST(CLP022:1:13):13:7)
+T1004C                   EVAL      Z22_CCBLST    = %SUBST(CLP023:1:1)
+T1004C                   EVAL      Z22_CCDEXC    = %SUBST(CLP024:1:5)
+T1004C                   EVAL      Z22_CCDSTS    = %SUBST(CLP025:1:1)
+T1004C                   EVAL      Z22_CCCOUN    = %SUBST(CLP026:1:3)
+T1004C                   EVAL      Z22_CCCURR    = %SUBST(CLP027:1:4)
+T1004C                   EVAL      Z22_CCMTMV    = %SUBST(CLP028:1:1)
+T1004C                   EVAL      Z22_CCAPRV    = %SUBST(CLP029:1:1)
+T1004C                   EVAL      Z22_WCURRIN   = %SUBST(CLP030:1:4)
+T1004C                   EVAL      Z22_CCGLBC    = %SUBST(CLP031:1:1)
+T1004C                   EVAL      Z22_CCBOAP    =
+T1004C                                        %DEC(%SUBST(CLP032:1:11):11:9)
+T1004C                   EVAL      Z22_CCBSEL    = %SUBST(CLP033:1:1)
+T1004C                   EVAL      Z22_CCALPV    = %SUBST(CLP034:1:1)
+T1004C                   EVAL      Z22_CCSLLC    = %SUBST(CLP035:1:1)
+T1004C                   EVAL      Z22_CCDCID    =
+T1004C                                        %INT(%SUBST(CLP036:1:19))
+T1004C                   EVAL      Z22_CCDNAM    = %SUBST(CLP037:1:40)
+T1004C                   EVAL      Z22_CCDSCA    = %SUBST(CLP038:1:5)
+T1004C                   EVAL      Z22_CCDDSC    = %SUBST(CLP039:1:50)
+T1004C                   EVAL      Z22_CCCOFR    = %SUBST(CLP040:1:10)
+T1004C                   EVAL      Z22_CCRELA    = %SUBST(CLP041:1:2)
+T1004C                   EVAL      Z22_CCDVA8    =
+T1004C                                        %INT(%SUBST(CLP042:1:8))
+T1004C                   EVAL      Z22_CCDVRF    = %SUBST(CLP043:1:20)
+T1004C                   EVAL      Z22_CCCMSG    = %SUBST(CLP044:1:1)
+28   C                   EVAL      Z22_CCLTCV    =
+T1004C                                        %DEC(%SUBST(CLP045:1:11):11:9)
+T1004C                   EVAL      Z22_CCPFSF    = %SUBST(CLP046:1:1)
+30   C                   EVAL      Z22_CCPFS8    =
+T1004C                                        %INT(%SUBST(CLP047:1:8))
+31   C                   EVAL      Z22_CCREV8    =
+T1004C                                        %INT(%SUBST(CLP048:1:8))
+32   C                   EVAL      Z22_CCOVAL    =
+T1004C                                        %DEC(%SUBST(CLP049:1:17):17:2)
+T1004C                   EVAL      Z22_CCBVNA    = %SUBST(CLP050:1:40)
+34   C                   EVAL      Z22_CCOED8    =
+T1004C                                        %INT(%SUBST(CLP051:1:8))
+35   C                   EVAL      Z22_CCSRD8    =
+T1004C                                        %INT(%SUBST(CLP052:1:8))
+36   C                   EVAL      Z22_CCDRC8    =
+T1004C                                        %INT(%SUBST(CLP053:1:8))
+37   C                   EVAL      Z22_CCMINC    =
+T1004C                                        %DEC(%SUBST(CLP054:1:17):17:2)
+38   C                   EVAL      Z22_CCMAXC    =
+T1004C                                        %DEC(%SUBST(CLP055:1:17):17:2)
+T1004C                   EVAL      Z22_CCAUFR    = %SUBST(CLP056:1:1)
+40   C                   EVAL      Z22_CCFXRT    =
+T1004C                                        %DEC(%SUBST(CLP057:1:16):16:9)
+41   C                   EVAL      Z22_CCOFFV    =
+T1004C                                        %DEC(%SUBST(CLP058:1:17):17:2)
+42   C                   EVAL      Z22_CCBVAL    =
+T1004C                                        %DEC(%SUBST(CLP059:1:17):17:2)
+T1004C                   EVAL      Z22_CCCDSN    = %SUBST(CLP060:1:30)
+44   C                   EVAL      Z22_CCDORG    =
+T1004C                                        %DEC(%SUBST(CLP061:1:17):17:2)
+T1004C                   EVAL      Z22_CCBSEC    = %SUBST(CLP062:1:6)
+47   C                   EVAL      Z22_CCRLSV    =
+T1004C                                        %DEC(%SUBST(CLP063:1:17):17:2)
+48   C                   EVAL      Z22_CCCAPP    =
+T1004C                                        %DEC(%SUBST(CLP064:1:17):17:2)
+49   C                   EVAL      Z22_CCDMAM    =
+T1004C                                        %DEC(%SUBST(CLP065:1:17):17:2)
+50   C                   EVAL      Z22_CCDMD8    =
+T1004C                                        %INT(%SUBST(CLP066:1:8))
+T1004C                   EVAL      Z22_MNCUID    = %SUBST(CLP067:1:10)
+53   C                   EVAL      Z22_MNCDT8    =
+T1004C                                        %INT(%SUBST(CLP068:1:8))
+T1004C                   EVAL      Z22_WMNCTIM   = %SUBST(CLP069:1:26)
+T1004C                   EVAL      Z22_CCVALC    = %SUBST(CLP070:1:5)
+T1004C                   EVAL      Z22_CCBCAR    = %SUBST(CLP071:1:4)
+57   C                   EVAL      Z22_CCTOSB    =
+T1004C                                        %DEC(%SUBST(CLP072:1:17):17:2)
+59   C                   EVAL      Z22_CCFXRD    =
+T1004C                                        %INT(%SUBST(CLP073:1:8))
+61   C                   EVAL      Z22_CCDNV8    =
+T1004C                                        %INT(%SUBST(CLP074:1:8))
+62   C                   EVAL      Z22_CCDVFQ    =
+T1004C                                        %INT(%SUBST(CLP075:1:3))
+T1004C                   EVAL      Z22_CCDVCD    = %SUBST(CLP076:1:1)
+64   C                   EVAL      Z22_CCLVO8    =
+T1004C                                        %INT(%SUBST(CLP077:1:8))
+65   C                   EVAL      Z22_CCLVOT    =
+T1004C                                        %INT(%SUBST(CLP078:1:6))
+66   C                   EVAL      Z22_CCCDS     =
+T1004C                                        %INT(%SUBST(CLP079:1:19))
+T1004C                   EVAL      Z22_CCGRTG    = %SUBST(CLP080:1:6)
+T1004C                   EVAL      Z22_CCGRTA    = %SUBST(CLP081:1:10)
+70   C                   EVAL      Z22_CGPAMT    =
+T1004C                                        %DEC(%SUBST(CLP082:1:17):17:2)
+71   C                   EVAL      Z22_CGPPCT    =
+T1004C                                        %DEC(%SUBST(CLP083:1:11):11:9)
+T1004C                   EVAL      Z22_CCGCOU    = %SUBST(CLP084:1:3)
+T1004C                   EVAL      Z22_CCCUTD    = %SUBST(CLP085:1:40)
+T1004C                   EVAL      Z22_CCBNMA    = %SUBST(CLP086:1:20)
+82   C                   EVAL      Z22_CCROWN_1  =
+T1004C                                        %INT(%SUBST(CLP087:1:19))
+83   C                   EVAL      Z22_CCROWN_2  =
+T1004C                                        %INT(%SUBST(CLP088:1:19))
+84   C                   EVAL      Z22_CCROWN_3  =
+T1004C                                        %INT(%SUBST(CLP089:1:19))
+85   C                   EVAL      Z22_CCROWN_4  =
+T1004C                                        %INT(%SUBST(CLP090:1:19))
+86   C                   EVAL      Z22_CCROWN_5  =
+T1004C                                        %INT(%SUBST(CLP091:1:19))
+92   C                   EVAL      Z22_CCSSEQ2   =
+     C                                        %INT(%SUBST(CLP092:1:3))
+93   C                   EVAL      Z22_CCSCRN2   = %SUBST(CLP093:1:20)
+94   C                   EVAL      Z22_CCSSRF2   =
+     C                                        %INT(%SUBST(CLP094:1:12))
+95   C                   EVAL      Z22_CCSSRT2   =
+     C                                        %INT(%SUBST(CLP095:1:12))
+96   C                   EVAL      Z22_CCSQUA2   =
+     C                                        %INT(%SUBST(CLP096:1:13))
+97   C                   EVAL      Z22_CCSSEQ3   =
+     C                                        %INT(%SUBST(CLP097:1:3))
+98   C                   EVAL      Z22_CCSCRN3   = %SUBST(CLP098:1:20)
+99   C                   EVAL      Z22_CCSSRF3   =
+     C                                        %INT(%SUBST(CLP099:1:12))
+100  C                   EVAL      Z22_CCSSRT3   =
+     C                                        %INT(%SUBST(CLP100:1:12))
+101  C                   EVAL      Z22_CCSQUA3   =
+     C                                        %INT(%SUBST(CLP101:1:13))
+102  C                   EVAL      Z22_CCSSEQ4   =
+     C                                        %INT(%SUBST(CLP102:1:3))
+103  C                   EVAL      Z22_CCSCRN4   = %SUBST(CLP103:1:20)
+104  C                   EVAL      Z22_CCSSRF4   =
+     C                                        %INT(%SUBST(CLP104:1:12))
+105  C                   EVAL      Z22_CCSSRT4   =
+     C                                        %INT(%SUBST(CLP105:1:12))
+106  C                   EVAL      Z22_CCSQUA4   =
+     C                                        %INT(%SUBST(CLP106:1:13))
+107  C                   EVAL      Z22_CCSSEQ5   =
+     C                                        %INT(%SUBST(CLP107:1:3))
+108  C                   EVAL      Z22_CCSCRN5   = %SUBST(CLP108:1:20)
+109  C                   EVAL      Z22_CCSSRF5   =
+     C                                        %INT(%SUBST(CLP109:1:12))
+110  C                   EVAL      Z22_CCSSRT5   =
+     C                                        %INT(%SUBST(CLP110:1:12))
+111  C                   EVAL      Z22_CCSQUA5   =
+     C                                        %INT(%SUBST(CLP111:1:13))
+112  C                   EVAL      Z22_CNSTAT    = %SUBST(CLP112:1:1)
+     C*
+5    C                   EVAL      IN__BKN       = Z22_CCBKN
+6    C                   EVAL      IN__BRN       = Z22_CCBRN
+     C*
+     C                   EXSR      SRGETHEADR
+     C                   MOVEL     MBHEADR       RECVHDR
+     C                   MOVEL     DS88210I      INSTRS
+     C                   CALLB     'CL88210'     HNDRPL
+     C                   MOVEL     SENDHDR       MBHEADR
+     C*
+     C                   IF        mhHDRIND      = BAD
+     C                   ROLBK
+     C                   MOVEL     OTSTRS        MBERROR
+     C                   EVAL      WERRORC       = meERCODE
+     C                   EVAL      WERRMSG       = 'CL88210:' + %TRIM(meERFLDN)
+     C                                           + meERDESC
+     C                   EVAL      WERRFLD       = *BLANKS
+     C                   MOVEL     'F'           WTXNSTS
+     C                   MOVEL     'F'           WTXNSTS_GOOD
+     C                   EXSR      SR_SUB_BAD
+     C                   ELSE
+     C*
+     C                   IF        mhHDRIND      = GOOD
+     C                   MOVEL     'S'           WTXNSTS
+     C                   MOVEL     OTSTRS        DS88210R
+     C*
+     C                   EVAL      WK_CCDCID     = Z23_CCDCID
+     C                   EXSR      SR_SUB_GOOD
+     C                   ENDIF
+     C                   ENDIF
+     C*
+     C                   ENDSR
+     C*------------------
+     C     SR_CL88201_BNDBEGSR
+     C*Maintenance - CLM Collateral Bond
+     C                   EVAL      WERRORC       = *BLANKS
+     C                   EVAL      WERRFLD       = *BLANKS
+     C                   EVAL      WMSGDTA       = *BLANKS
+     C                   EVAL      WERRMSG       = *BLANKS
+     C                   CLEAR                   DS88201I
+     C*Map Fields
+     C                   CLEAR                   MBHEADR
+     C*
+     C                   EVAL      Z24_CCDCAT    = %SUBST(CLP003:1:5)
+     C                   EVAL      Z24_CCDCOD    = %SUBST(CLP004:1:10)
+     C                   EVAL      Z24_CCBKN     =
+     C                                        %INT(%SUBST(CLP005:1:2))
+     C                   EVAL      Z24_CCBRN     =
+     C                                        %INT(%SUBST(CLP006:1:5))
+     C                   EVAL      Z24_CCCIFN    =
+     C                                        %INT(%SUBST(CLP007:1:19))
+T1004C                   EVAL      Z24_CCBNDC    = %SUBST(CLP008:1:10)
+T1004C                   EVAL      Z24_CCBTYP    = %SUBST(CLP009:1:3)
+T1004C                   EVAL      Z24_CCBOWN    = %SUBST(CLP010:1:40)
+T1004C                   EVAL      Z24_CCSSEQ1   =
+T1004C                                        %INT(%SUBST(CLP011:1:3))
+T1004C                   EVAL      Z24_CCSCRN1   = %SUBST(CLP012:1:20)
+T1004C                   EVAL      Z24_CCSSRF1   =
+T1004C                                        %INT(%SUBST(CLP013:1:12))
+T1004C                   EVAL      Z24_CCSSRT1   =
+T1004C                                        %INT(%SUBST(CLP014:1:12))
+T1004C                   EVAL      Z24_CCSQUA1   =
+T1004C                                        %INT(%SUBST(CLP015:1:13))
+T1004C                   EVAL      Z24_CCOSNM    = %SUBST(CLP016:1:20)
+     C                   EVAL      Z24_CCDCMV    =
+T1004C                                        %DEC(%SUBST(CLP017:1:17):17:2)
+     C                   EVAL      Z24_CCDSHR    =
+T1004C                                        %INT(%SUBST(CLP018:1:13))
+     C                   EVAL      Z24_CCBDIS    =
+T1004C                                        %INT(%SUBST(CLP019:1:3))
+     C                   EVAL      Z24_CCISS8    =
+T1004C                                        %INT(%SUBST(CLP020:1:8))
+     C                   EVAL      Z24_CCRATE    =
+T1004C                                        %DEC(%SUBST(CLP021:1:11):11:9)
+T1004C                   EVAL      Z24_CCBOAI    = %SUBST(CLP022:1:4)
+T1004C                   EVAL      Z24_SHARE     = %SUBST(CLP023:1:1)
+T1004C                   EVAL      Z24_MNCUID    = %SUBST(CLP024:1:10)
+     C                   EVAL      Z24_MNCDT8    =
+T1004C                                        %INT(%SUBST(CLP025:1:8))
+T1004C                   EVAL      Z24_CCDEXC    = %SUBST(CLP026:1:5)
+T1004C                   EVAL      Z24_CCDSTS    = %SUBST(CLP027:1:1)
+T1004C                   EVAL      Z24_CCCOUN    = %SUBST(CLP028:1:3)
+T1004C                   EVAL      Z24_CCCURR    = %SUBST(CLP029:1:4)
+T1004C                   EVAL      Z24_CCMTMV    = %SUBST(CLP030:1:1)
+T1004C                   EVAL      Z24_CCAPRV    = %SUBST(CLP031:1:1)
+T1004C                   EVAL      Z24_CCGLBC    = %SUBST(CLP032:1:1)
+T1004C                   EVAL      Z24_CCBSEL    = %SUBST(CLP033:1:1)
+     C                   EVAL      Z24_CCBOAP    =
+T1004C                                        %DEC(%SUBST(CLP034:1:11):11:9)
+T1004C                   EVAL      Z24_CCALPV    = %SUBST(CLP035:1:1)
+T1004C                   EVAL      Z24_CCSLLC    = %SUBST(CLP036:1:1)
+     C                   EVAL      Z24_CCDCID    = 0
+T1004C                   EVAL      Z24_CCDNAM    = %SUBST(CLP038:1:40)
+T1004C                   EVAL      Z24_CCDSCA    = %SUBST(CLP039:1:5)
+T1004C                   EVAL      Z24_CCDDSC    = %SUBST(CLP040:1:50)
+T1004C                   EVAL      Z24_CCCOFR    = %SUBST(CLP041:1:10)
+T1004C                   EVAL      Z24_CCBRGN    = %SUBST(CLP042:1:25)
+T1004C                   EVAL      Z24_CCBOND    = %SUBST(CLP043:1:20)
+T1004C                   EVAL      Z24_CCRELA    = %SUBST(CLP044:1:2)
+     C                   EVAL      Z24_CCREG8    =
+T1004C                                        %INT(%SUBST(CLP045:1:8))
+     C                   EVAL      Z24_CCBNDM    =
+T1004C                                        %INT(%SUBST(CLP046:1:4))
+     C                   EVAL      Z24_CCBNIX    =
+T1004C                                        %INT(%SUBST(CLP047:1:3))
+     C                   EVAL      Z24_CCBND8    =
+T1004C                                        %INT(%SUBST(CLP048:1:8))
+     C                   EVAL      Z24_CCBRAT    =
+T1004C                                        %DEC(%SUBST(CLP049:1:11):11:9)
+T1004C                   EVAL      Z24_CCCMSG    = %SUBST(CLP050:1:1)
+T1004C                   EVAL      Z24_CCLIMT    = %SUBST(CLP051:1:50)
+T1004C                   EVAL      Z24_CCREM1    = %SUBST(CLP052:1:60)
+     C                   EVAL      Z24_CCLTCV    =
+T1004C                                        %DEC(%SUBST(CLP053:1:11):11:9)
+T1004C                   EVAL      Z24_CCPFSF    = %SUBST(CLP054:1:1)
+     C                   EVAL      Z24_CCPFS8    =
+T1004C                                        %INT(%SUBST(CLP055:1:8))
+     C                   EVAL      Z24_CCOVAL    =
+T1004C                                        %DEC(%SUBST(CLP056:1:17):17:2)
+     C                   EVAL      Z24_CCOED8    =
+T1004C                                        %INT(%SUBST(CLP057:1:8))
+     C                   EVAL      Z24_CCSRD8    =
+T1004C                                        %INT(%SUBST(CLP058:1:8))
+     C                   EVAL      Z24_CCREV8    =
+T1004C                                        %INT(%SUBST(CLP059:1:8))
+     C                   EVAL      Z24_CCDRC8    =
+T1004C                                        %INT(%SUBST(CLP060:1:8))
+T1004C                   EVAL      Z24_CCSERN    = %SUBST(CLP061:1:20)
+T1004C                   EVAL      Z24_CCINSF    = %SUBST(CLP062:1:1)
+T1004C                   EVAL      Z24_CCBSEC    = %SUBST(CLP063:1:6)
+T1004C                   EVAL      Z24_CCCDSN    = %SUBST(CLP064:1:30)
+     C                   EVAL      Z24_CCRLSV    =
+T1004C                                        %DEC(%SUBST(CLP065:1:17):17:2)
+     C                   EVAL      Z24_CCSHCR    =
+T1004C                                        %DEC(%SUBST(CLP066:1:11):11:9)
+     C                   EVAL      Z24_CCMHCR    =
+T1004C                                        %DEC(%SUBST(CLP067:1:11):11:9)
+T1004C                   EVAL      Z24_WMNCTIM   = %SUBST(CLP068:1:26)
+T1004C                   EVAL      Z24_CCBCAR    = %SUBST(CLP069:1:4)
+     C                   EVAL      Z24_CCTOSB    =
+T1004C                                        %DEC(%SUBST(CLP070:1:17):17:2)
+     C                   EVAL      Z24_CCFXRD    =
+T1004C                                        %INT(%SUBST(CLP071:1:8))
+     C                   EVAL      Z24_CCDNV8    =
+T1004C                                        %INT(%SUBST(CLP072:1:8))
+     C                   EVAL      Z24_CCDVFQ    =
+T1004C                                        %INT(%SUBST(CLP073:1:3))
+T1004C                   EVAL      Z24_CCDVCD    = %SUBST(CLP074:1:1)
+     C                   EVAL      Z24_CCLVO8    =
+T1004C                                        %INT(%SUBST(CLP075:1:8))
+     C                   EVAL      Z24_CCLVOT    =
+T1004C                                        %INT(%SUBST(CLP076:1:6))
+     C                   EVAL      Z24_CGPAMT    =
+T1004C                                        %DEC(%SUBST(CLP077:1:17):17:2)
+     C                   EVAL      Z24_CGPPCT    =
+T1004C                                        %DEC(%SUBST(CLP078:1:11):11:9)
+T1004C                   EVAL      Z24_CCGCOU    = %SUBST(CLP079:1:3)
+T1004C                   EVAL      Z24_CCCUTD    = %SUBST(CLP080:1:40)
+T1004C                   EVAL      Z24_CCBNMA    = %SUBST(CLP081:1:20)
+     C                   EVAL      Z24_CCROWN_1  =
+T1004C                                        %INT(%SUBST(CLP082:1:19))
+     C                   EVAL      Z24_CCROWN_2  =
+T1004C                                        %INT(%SUBST(CLP083:1:19))
+     C                   EVAL      Z24_CCROWN_3  =
+T1004C                                        %INT(%SUBST(CLP084:1:19))
+     C                   EVAL      Z24_CCROWN_4  =
+T1004C                                        %INT(%SUBST(CLP085:1:19))
+     C                   EVAL      Z24_CCROWN_5  =
+T1004C                                        %INT(%SUBST(CLP086:1:19))
+     C                   EVAL      Z24_CCSSEQ2   =
+     C                                        %INT(%SUBST(CLP087:1:3))
+     C                   EVAL      Z24_CCSCRN2   = %SUBST(CLP088:1:20)
+     C                   EVAL      Z24_CCSSRF2   =
+     C                                        %INT(%SUBST(CLP089:1:12))
+     C                   EVAL      Z24_CCSSRT2   =
+     C                                        %INT(%SUBST(CLP090:1:12))
+     C                   EVAL      Z24_CCSQUA2   =
+     C                                        %INT(%SUBST(CLP091:1:13))
+     C                   EVAL      Z24_CCSSEQ3   =
+     C                                        %INT(%SUBST(CLP092:1:3))
+     C                   EVAL      Z24_CCSCRN3   = %SUBST(CLP093:1:20)
+     C                   EVAL      Z24_CCSSRF3   =
+     C                                        %INT(%SUBST(CLP094:1:12))
+     C                   EVAL      Z24_CCSSRT3   =
+     C                                        %INT(%SUBST(CLP095:1:12))
+     C                   EVAL      Z24_CCSQUA3   =
+     C                                        %INT(%SUBST(CLP096:1:13))
+     C                   EVAL      Z24_CCSSEQ4   =
+     C                                        %INT(%SUBST(CLP097:1:3))
+     C                   EVAL      Z24_CCSCRN4   = %SUBST(CLP098:1:20)
+     C                   EVAL      Z24_CCSSRF4   =
+     C                                        %INT(%SUBST(CLP099:1:12))
+     C                   EVAL      Z24_CCSSRT4   =
+     C                                        %INT(%SUBST(CLP100:1:12))
+     C                   EVAL      Z24_CCSQUA4   =
+     C                                        %INT(%SUBST(CLP101:1:13))
+     C                   EVAL      Z24_CCSSEQ5   =
+     C                                        %INT(%SUBST(CLP102:1:3))
+     C                   EVAL      Z24_CCSCRN5   = %SUBST(CLP103:1:20)
+     C                   EVAL      Z24_CCSSRF5   =
+     C                                        %INT(%SUBST(CLP104:1:12))
+     C                   EVAL      Z24_CCSSRT5   =
+     C                                        %INT(%SUBST(CLP105:1:12))
+     C                   EVAL      Z24_CCSQUA5   =
+     C                                        %INT(%SUBST(CLP106:1:13))
+     C*
+5    C                   EVAL      IN__BKN       = Z24_CCBKN
+6    C                   EVAL      IN__BRN       = Z24_CCBRN
+     C*
+     C                   EXSR      SRGETHEADR
+     C                   MOVEL     MBHEADR       RECVHDR
+     C                   MOVEL     DS88201I      INSTRS
+     C                   CALLB     'CL88201'     HNDRPL
+     C                   MOVEL     SENDHDR       MBHEADR
+     C*
+     C                   IF        mhHDRIND      = BAD
+     C                   ROLBK
+     C                   MOVEL     OTSTRS        MBERROR
+     C                   EVAL      WERRORC       = meERCODE
+     C                   EVAL      WERRMSG       = 'CL88201:' + %TRIM(meERFLDN)
+     C                                           + meERDESC
+     C                   EVAL      WERRFLD       = *BLANKS
+     C                   MOVEL     'F'           WTXNSTS
+     C                   MOVEL     'F'           WTXNSTS_GOOD
+     C                   EXSR      SR_SUB_BAD
+     C                   ELSE
+     C*
+     C                   IF        mhHDRIND      = GOOD
+     C                   MOVEL     'S'           WTXNSTS
+     C                   MOVEL     OTSTRS        DS88201R
+     C*
+     C                   EVAL      WK_CCDCID     = Z25_CCDCID
+     C                   EXSR      SR_SUB_GOOD
+     C                   ENDIF
+     C                   ENDIF
+     C*
+     C                   ENDSR
+     C*------------------
+     C     SR_CL88205_LC BEGSR
+     C*Maintenance - CLM Collateral LC
+     C                   EVAL      WERRORC       = *BLANKS
+     C                   EVAL      WERRFLD       = *BLANKS
+     C                   EVAL      WMSGDTA       = *BLANKS
+     C                   EVAL      WERRMSG       = *BLANKS
+     C                   CLEAR                   DS88205I
+     C*Map Fields
+     C                   CLEAR                   MBHEADR
+     C*
+     C                   EVAL      Z26_CCDCAT    = %SUBST(CLP003:1:5)
+     C                   EVAL      Z26_CCDCOD    = %SUBST(CLP004:1:10)
+     C                   EVAL      Z26_CCBKN     =
+     C                                        %INT(%SUBST(CLP005:1:2))
+     C                   EVAL      Z26_CCBRN     =
+     C                                        %INT(%SUBST(CLP006:1:5))
+     C                   EVAL      Z26_CCCIFN    =
+     C                                        %INT(%SUBST(CLP007:1:19))
+     C                   EVAL      Z26_CCBOND    = %SUBST(CLP008:1:20)
+     C                   EVAL      Z26_CCISS8    =
+     C                                        %INT(%SUBST(CLP009:1:8))
+     C                   EVAL      Z26_CCEXP8    =
+     C                                        %INT(%SUBST(CLP010:1:8))
+     C                   EVAL      Z26_CCDCMV    =
+     C                                        %DEC(%SUBST(CLP011:1:17):17:2)
+T1004C                   EVAL      Z26_CCINST    = %SUBST(CLP012:1:10)
+T1004C                   EVAL      Z26_CCOSNM    = %SUBST(CLP013:1:20)
+     C                   EVAL      Z26_CCCFD8    =
+T1004C                                        %INT(%SUBST(CLP014:1:8))
+T1004C                   EVAL      Z26_CCRELA    = %SUBST(CLP015:1:2)
+     C                   EVAL      Z26_SHARE     = %SUBST(CLP016:1:1)
+     C                   EVAL      Z26_CCTOSB    =
+     C                                        %DEC(%SUBST(CLP017:1:17):17:2)
+     C                   EVAL      Z26_CCIDNM    = %SUBST(CLP018:1:40)
+     C                   EVAL      Z26_CCDSTS    = %SUBST(CLP019:1:1)
+     C                   EVAL      Z26_CCCOUN    = %SUBST(CLP020:1:3)
+     C                   EVAL      Z26_CCCURR    = %SUBST(CLP021:1:4)
+     C                   EVAL      Z26_CCMTMV    = %SUBST(CLP022:1:1)
+     C                   EVAL      Z26_CCBOAI    = %SUBST(CLP023:1:4)
+     C                   EVAL      Z26_CCBOAP    =
+     C                                        %DEC(%SUBST(CLP024:1:11):11:9)
+     C                   EVAL      Z26_CCAPRV    = %SUBST(CLP025:1:1)
+     C                   EVAL      Z26_CCGLBC    = %SUBST(CLP026:1:1)
+     C                   EVAL      Z26_CCBSEL    = %SUBST(CLP027:1:1)
+     C                   EVAL      Z26_CCALPV    = %SUBST(CLP028:1:1)
+     C                   EVAL      Z26_CCSLLC    = %SUBST(CLP029:1:1)
+71004C                   EVAL      Z26_CCDCID    = 0
+     C                   EVAL      Z26_CCDNAM    = %SUBST(CLP031:1:40)
+     C                   EVAL      Z26_CCDSCA    = %SUBST(CLP032:1:5)
+     C                   EVAL      Z26_CCDDSC    = %SUBST(CLP033:1:50)
+     C                   EVAL      Z26_CCINSF    = %SUBST(CLP034:1:1)
+     C                   EVAL      Z26_CCCMSG    = %SUBST(CLP035:1:1)
+     C                   EVAL      Z26_CCLIMT    = %SUBST(CLP036:1:50)
+     C                   EVAL      Z26_CCREM1    = %SUBST(CLP037:1:60)
+     C                   EVAL      Z26_CCOVAL    =
+     C                                        %DEC(%SUBST(CLP038:1:17):17:2)
+     C                   EVAL      Z26_CCREV8    =
+     C                                        %INT(%SUBST(CLP039:1:8))
+     C                   EVAL      Z26_CCDRC8    =
+     C                                        %INT(%SUBST(CLP040:1:8))
+     C                   EVAL      Z26_CCBSEC    = %SUBST(CLP041:1:6)
+     C                   EVAL      Z26_CCRLSV    =
+     C                                        %DEC(%SUBST(CLP042:1:17):17:2)
+     C                   EVAL      Z26_CCBCAR    = %SUBST(CLP043:1:4)
+     C                   EVAL      Z26_CCDNV8    =
+     C                                        %INT(%SUBST(CLP044:1:8))
+     C                   EVAL      Z26_CCVDT8    =
+     C                                        %INT(%SUBST(CLP045:1:8))
+     C                   EVAL      Z26_CCVCOD    = %SUBST(CLP046:1:3)
+     C                   EVAL      Z26_CCDVFQ    =
+     C                                        %INT(%SUBST(CLP047:1:3))
+     C                   EVAL      Z26_CCDVCD    = %SUBST(CLP048:1:1)
+     C                   EVAL      Z26_CCLVO8    =
+     C                                        %INT(%SUBST(CLP049:1:8))
+     C                   EVAL      Z26_CCLVOT    =
+     C                                        %INT(%SUBST(CLP050:1:6))
+     C                   EVAL      Z26_CCERTG    = %SUBST(CLP051:1:6)
+     C                   EVAL      Z26_CCERTA    = %SUBST(CLP052:1:10)
+     C                   EVAL      Z26_CGPAMT    =
+     C                                        %DEC(%SUBST(CLP053:1:17):17:2)
+     C                   EVAL      Z26_CGPPCT    =
+     C                                        %DEC(%SUBST(CLP054:1:11):11:9)
+     C                   EVAL      Z26_CCGCOU    = %SUBST(CLP055:1:3)
+     C                   EVAL      Z26_CCCUTD    = %SUBST(CLP056:1:40)
+     C                   EVAL      Z26_CCROWN_1  =
+     C                                        %INT(%SUBST(CLP057:1:19))
+     C                   EVAL      Z26_CCROWN_2  =
+     C                                        %INT(%SUBST(CLP058:1:19))
+     C                   EVAL      Z26_CCROWN_3  =
+     C                                        %INT(%SUBST(CLP059:1:19))
+     C                   EVAL      Z26_CCROWN_4  =
+     C                                        %INT(%SUBST(CLP060:1:19))
+     C                   EVAL      Z26_CCROWN_5  =
+     C                                        %INT(%SUBST(CLP061:1:19))
+     C                   EVAL      Z26_MNCUID    = %SUBST(CLP062:1:10)
+     C                   EVAL      Z26_MNCDT8    =
+     C                                        %INT(%SUBST(CLP063:1:8))
+     C                   EVAL      Z26_WMNCTIM   = %SUBST(CLP064:1:26)
+     C                   EVAL      Z26_CCBOWN    = %SUBST(CLP065:1:40)
+     C                   EVAL      Z26_CCGAMT    =
+     C                                        %DEC(%SUBST(CLP066:1:17):17:2)
+     C                   EVAL      Z26_CCPFSF    = %SUBST(CLP067:1:1)
+     C                   EVAL      Z26_CCPFS8    =
+     C                                        %INT(%SUBST(CLP068:1:8))
+     C*
+5    C                   EVAL      IN__BKN       = Z26_CCBKN
+6    C                   EVAL      IN__BRN       = Z26_CCBRN
+     C*
+     C                   EXSR      SRGETHEADR
+     C                   MOVEL     MBHEADR       RECVHDR
+     C                   MOVEL     DS88205I      INSTRS
+     C                   CALLB     'CL88205'     HNDRPL
+     C                   MOVEL     SENDHDR       MBHEADR
+     C*
+     C                   IF        mhHDRIND      = BAD
+     C                   ROLBK
+     C                   MOVEL     OTSTRS        MBERROR
+     C                   EVAL      WERRORC       = meERCODE
+     C                   EVAL      WERRMSG       = 'CL88205:' + %TRIM(meERFLDN)
+     C                                           + meERDESC
+     C                   EVAL      WERRFLD       = *BLANKS
+     C                   MOVEL     'F'           WTXNSTS
+     C                   MOVEL     'F'           WTXNSTS_GOOD
+     C                   EXSR      SR_SUB_BAD
+     C                   ELSE
+     C*
+     C                   IF        mhHDRIND      = GOOD
+     C                   MOVEL     'S'           WTXNSTS
+     C                   MOVEL     OTSTRS        DS88205R
+     C*
+     C                   EVAL      WK_CCDCID     = Z27_CCDCID
+     C                   EXSR      SR_SUB_GOOD
+     C                   ENDIF
+     C                   ENDIF
+     C*
+     C                   ENDSR
+     C*------------------
+     C     SR_CL88206_LSABEGSR
+     C*Maintenance - CLM Collateral Lease Agreement
+     C                   EVAL      WERRORC       = *BLANKS
+     C                   EVAL      WERRFLD       = *BLANKS
+     C                   EVAL      WMSGDTA       = *BLANKS
+     C                   EVAL      WERRMSG       = *BLANKS
+     C                   CLEAR                   DS88206I
+     C*Map Fields
+     C                   CLEAR                   MBHEADR
+     C*
+     C                   EVAL      Z28_CCDCAT    = %SUBST(CLP003:1:5)
+     C                   EVAL      Z28_CCDCOD    = %SUBST(CLP004:1:10)
+     C                   EVAL      Z28_CCBKN     =
+     C                                        %INT(%SUBST(CLP005:1:2))
+     C                   EVAL      Z28_CCBRN     =
+     C                                        %INT(%SUBST(CLP006:1:5))
+     C                   EVAL      Z28_CCCIFN    =
+     C                                        %INT(%SUBST(CLP007:1:19))
+     C                   EVAL      Z28_CCOSNM    = %SUBST(CLP008:1:20)
+T1004C                   EVAL      Z28_CCLSOR    = %SUBST(CLP009:1:40)
+     C                   EVAL      Z28_CCISS8    =
+T1004C                                        %INT(%SUBST(CLP010:1:8))
+     C                   EVAL      Z28_CCEXP8    =
+T1004C                                        %INT(%SUBST(CLP011:1:8))
+     C                   EVAL      Z28_CCDCMV    =
+T1004C                                        %DEC(%SUBST(CLP012:1:17):17:2)
+     C                   EVAL      Z28_CCTENT    =
+T1004C                                        %INT(%SUBST(CLP013:1:3))
+T1004C                   EVAL      Z28_CCTENC    = %SUBST(CLP014:1:1)
+T1004C                   EVAL      Z28_CCRTLA    =
+T1004C                                        %DEC(%SUBST(CLP015:1:17):17:2)
+T1004C                   EVAL      Z28_CCLVO8    =
+T1004C                                        %INT(%SUBST(CLP016:1:8))
+T1004C                   EVAL      Z28_CCVDT8    =
+T1004C                                        %INT(%SUBST(CLP017:1:8))
+T1004C                   EVAL      Z28_CCLSAN    = %SUBST(CLP018:1:20)
+T1004C                   EVAL      Z28_CCDNV8    =
+T1004C                                        %INT(%SUBST(CLP019:1:8))
+T1004C                   EVAL      Z28_CCVCOD    = %SUBST(CLP020:1:3)
+T1004C                   EVAL      Z28_CCVTYP    = %SUBST(CLP021:1:3)
+T1004C                   EVAL      Z28_CCBOAI    = %SUBST(CLP022:1:4)
+T1004C                   EVAL      Z28_CCPTYP    = %SUBST(CLP023:1:3)
+     C                   EVAL      Z28_CCMOFU    =
+T1004C                                        %INT(%SUBST(CLP024:1:1))
+T1004C                   EVAL      Z28_CCREM1    = %SUBST(CLP025:1:60)
+T1004C                   EVAL      Z28_SHARE     = %SUBST(CLP026:1:1)
+T1004C                   EVAL      Z28_CCAPRV    = %SUBST(CLP027:1:1)
+T1004C                   EVAL      Z28_MNCUID    = %SUBST(CLP028:1:10)
+     C                   EVAL      Z28_MNCDT8    =
+T1004C                                        %INT(%SUBST(CLP029:1:8))
+T1004C                   EVAL      Z28_WCURRIN   = %SUBST(CLP030:1:4)
+T1004C                   EVAL      Z28_CCGLBC    = %SUBST(CLP031:1:1)
+     C                   EVAL      Z28_CCLVOT    =
+T1004C                                        %INT(%SUBST(CLP032:1:6))
+T1004C                   EVAL      Z28_CCSTAT    = %SUBST(CLP033:1:3)
+     C                   EVAL      Z28_CCRSDV    =
+T1004C                                        %DEC(%SUBST(CLP034:1:15):15:2)
+T1004C                   EVAL      Z28_CCDSTS    = %SUBST(CLP035:1:1)
+T1004C                   EVAL      Z28_CCCOUN    = %SUBST(CLP036:1:3)
+T1004C                   EVAL      Z28_CCCURR    = %SUBST(CLP037:1:4)
+T1004C                   EVAL      Z28_CCMTMV    = %SUBST(CLP038:1:1)
+T1004C                   EVAL      Z28_CCMUKM    = %SUBST(CLP039:1:40)
+T1004C                   EVAL      Z28_CCGCOU    = %SUBST(CLP040:1:3)
+     C                   EVAL      Z28_CCBOAP    =
+T1004C                                        %DEC(%SUBST(CLP041:1:11):11:9)
+T1004C                   EVAL      Z28_CCBSEL    = %SUBST(CLP042:1:1)
+T1004C                   EVAL      Z28_CCALPV    = %SUBST(CLP043:1:1)
+T1004C                   EVAL      Z28_CCSLLC    = %SUBST(CLP044:1:1)
+T1004C                   EVAL      Z28_CCDCID    = 0
+T1004C                   EVAL      Z28_CCDNAM    = %SUBST(CLP046:1:40)
+T1004C                   EVAL      Z28_CCDSCA    = %SUBST(CLP047:1:5)
+T1004C                   EVAL      Z28_CCDDSC    = %SUBST(CLP048:1:50)
+T1004C                   EVAL      Z28_CCLAGR    = %SUBST(CLP049:1:1)
+T1004C                   EVAL      Z28_CCCOFR    = %SUBST(CLP050:1:10)
+T1004C                   EVAL      Z28_CCRELA    = %SUBST(CLP051:1:2)
+T1004C                   EVAL      Z28_CCLOC1    = %SUBST(CLP052:1:40)
+T1004C                   EVAL      Z28_CCLOC2    = %SUBST(CLP053:1:40)
+T1004C                   EVAL      Z28_CCLOC3    = %SUBST(CLP054:1:40)
+T1004C                   EVAL      Z28_CCBOWN    = %SUBST(CLP055:1:40)
+T1004C                   EVAL      Z28_CCLIMT    = %SUBST(CLP056:1:50)
+     C                   EVAL      Z28_CCDEL8    =
+T1004C                                        %INT(%SUBST(CLP057:1:8))
+     C                   EVAL      Z28_CCACK8    =
+T1004C                                        %INT(%SUBST(CLP058:1:8))
+     C                   EVAL      Z28_CCLAND    =
+T1004C                                        %DEC(%SUBST(CLP059:1:13):13:2)
+     C                   EVAL      Z28_CCBLDD    =
+T1004C                                        %DEC(%SUBST(CLP060:1:17):17:2)
+     C                   EVAL      Z28_CCDAPV    =
+T1004C                                        %DEC(%SUBST(CLP061:1:17):17:2)
+T1004C                   EVAL      Z28_CCDAPP    = %SUBST(CLP062:1:40)
+     C                   EVAL      Z28_CCDAP8    =
+T1004C                                        %INT(%SUBST(CLP063:1:8))
+T1004C                   EVAL      Z28_CCINSF    = %SUBST(CLP064:1:1)
+T1004C                   EVAL      Z28_CCCMSG    = %SUBST(CLP065:1:1)
+     C                   EVAL      Z28_CCLTCV    =
+T1004C                                        %DEC(%SUBST(CLP066:1:11):11:9)
+T1004C                   EVAL      Z28_CCPFSF    = %SUBST(CLP067:1:1)
+     C                   EVAL      Z28_CCPFS8    =
+T1004C                                        %INT(%SUBST(CLP068:1:8))
+     C                   EVAL      Z28_CCOVAL    =
+T1004C                                        %DEC(%SUBST(CLP069:1:17):17:2)
+     C                   EVAL      Z28_CCOED8    =
+T1004C                                        %INT(%SUBST(CLP070:1:8))
+     C                   EVAL      Z28_CCSRD8    =
+T1004C                                        %INT(%SUBST(CLP071:1:8))
+     C                   EVAL      Z28_CCDRC8    =
+     C                                        %INT(%SUBST(CLP072:1:8))
+     C                   EVAL      Z28_CCREV8    =
+     C                                        %INT(%SUBST(CLP073:1:8))
+     C                   EVAL      Z28_CCFXRT    =
+     C                                        %DEC(%SUBST(CLP074:1:16):16:9)
+     C                   EVAL      Z28_CCGAMT    =
+     C                                        %DEC(%SUBST(CLP075:1:17):17:2)
+     C                   EVAL      Z28_CCBSEC    = %SUBST(CLP076:1:6)
+     C                   EVAL      Z28_CCRLSV    =
+     C                                        %DEC(%SUBST(CLP077:1:17):17:2)
+     C                   EVAL      Z28_LNHVCD    = %SUBST(CLP078:1:5)
+     C                   EVAL      Z28_CCPFRQ    =
+     C                                        %INT(%SUBST(CLP079:1:3))
+     C                   EVAL      Z28_CCPFRC    = %SUBST(CLP080:1:1)
+     C                   EVAL      Z28_WMNCTIM   = %SUBST(CLP081:1:26)
+     C                   EVAL      Z28_CCBCAR    = %SUBST(CLP082:1:4)
+     C                   EVAL      Z28_CCTOSB    =
+     C                                        %DEC(%SUBST(CLP083:1:17):17:2)
+     C                   EVAL      Z28_CCFXRD    =
+     C                                        %INT(%SUBST(CLP084:1:8))
+     C                   EVAL      Z28_CCDVFQ    =
+     C                                        %INT(%SUBST(CLP085:1:3))
+     C                   EVAL      Z28_CCDVCD    = %SUBST(CLP086:1:1)
+     C                   EVAL      Z28_CCDIST    = %SUBST(CLP087:1:40)
+     C                   EVAL      Z28_CCTOWN    = %SUBST(CLP088:1:40)
+     C                   EVAL      Z28_CGPAMT    =
+     C                                        %DEC(%SUBST(CLP089:1:17):17:2)
+     C                   EVAL      Z28_CGPPCT    =
+     C                                        %DEC(%SUBST(CLP090:1:11):11:9)
+     C                   EVAL      Z28_CCROWN_1  =
+     C                                        %INT(%SUBST(CLP091:1:19))
+     C                   EVAL      Z28_CCROWN_2  =
+     C                                        %INT(%SUBST(CLP092:1:19))
+     C                   EVAL      Z28_CCROWN_3  =
+     C                                        %INT(%SUBST(CLP093:1:19))
+     C                   EVAL      Z28_CCROWN_4  =
+     C                                        %INT(%SUBST(CLP094:1:19))
+     C                   EVAL      Z28_CCROWN_5  =
+     C                                        %INT(%SUBST(CLP095:1:19))
+     C                   EVAL      Z28_CFADFM    = %SUBST(CLP096:1:1)
+     C                   EVAL      Z28_CFADTP    = %SUBST(CLP097:1:1)
+     C                   EVAL      Z28_CFNA2     = %SUBST(CLP098:1:40)
+     C                   EVAL      Z28_CFNA3     = %SUBST(CLP099:1:40)
+     C                   EVAL      Z28_CFNA4     = %SUBST(CLP100:1:40)
+     C                   EVAL      Z28_CFNA5     = %SUBST(CLP101:1:40)
+     C                   EVAL      Z28_CFNA6     = %SUBST(CLP102:1:40)
+     C                   EVAL      Z28_CFNA7     = %SUBST(CLP103:1:40)
+     C                   EVAL      Z28_CFNA8     = %SUBST(CLP104:1:40)
+     C                   EVAL      Z28_CFANA1    = %SUBST(CLP105:1:40)
+     C                   EVAL      Z28_CFANA2    = %SUBST(CLP106:1:40)
+     C                   EVAL      Z28_CFFORN    = %SUBST(CLP107:1:1)
+     C                   EVAL      Z28_CFBADA    = %SUBST(CLP108:1:1)
+     C                   EVAL      Z28_CFRMKS    = %SUBST(CLP109:1:40)
+     C                   EVAL      Z28_CFCITY    = %SUBST(CLP110:1:20)
+     C                   EVAL      Z28_CFZIP     = %SUBST(CLP111:1:9)
+     C                   EVAL      Z28_CFSTAT    = %SUBST(CLP112:1:3)
+     C                   EVAL      Z28_CFCOUN    = %SUBST(CLP113:1:3)
+     C                   EVAL      Z28_CFOWNT    = %SUBST(CLP114:1:10)
+     C                   EVAL      Z28_CFSTY8    =
+     C                                        %INT(%SUBST(CLP115:1:8))
+     C                   EVAL      Z28_CCPAMT    =
+     C                                        %DEC(%SUBST(CLP116:1:17):17:2)
+     C                   EVAL      Z28_CCPUR8    =
+     C                                        %INT(%SUBST(CLP117:1:8))
+     C                   EVAL      Z28_CCSAP8    =
+     C                                        %INT(%SUBST(CLP118:1:8))
+     C                   EVAL      Z28_CCSPE8    =
+     C                                        %INT(%SUBST(CLP119:1:8))
+     C*
+     C                   EXSR      SRGETHEADR
+     C                   MOVEL     MBHEADR       RECVHDR
+     C                   MOVEL     DS88206I      INSTRS
+     C                   CALLB     'CL88206'     HNDRPL
+     C                   MOVEL     SENDHDR       MBHEADR
+     C*
+     C                   IF        mhHDRIND      = BAD
+     C                   ROLBK
+     C                   MOVEL     OTSTRS        MBERROR
+     C                   EVAL      WERRORC       = meERCODE
+     C                   EVAL      WERRMSG       = 'CL88206:' + %TRIM(meERFLDN)
+     C                                           + meERDESC
+     C                   EVAL      WERRFLD       = *BLANKS
+     C                   MOVEL     'F'           WTXNSTS
+     C                   MOVEL     'F'           WTXNSTS_GOOD
+     C                   EXSR      SR_SUB_BAD
+     C                   ELSE
+     C*
+     C                   IF        mhHDRIND      = GOOD
+     C                   MOVEL     'S'           WTXNSTS
+     C                   MOVEL     OTSTRS        DS88206R
+     C*
+     C                   EVAL      WK_CCDCID     = Z29_CCDCID
+     C                   EXSR      SR_SUB_GOOD
+     C                   ENDIF
+     C                   ENDIF
+     C*
+     C                   ENDSR
+     C*------------------
+     C     SR_CL88213_MCHBEGSR
+     D*Maintenance - CLM Collateral Machinery-MACH
+     C                   EVAL      WERRORC       = *BLANKS
+     C                   EVAL      WERRFLD       = *BLANKS
+     C                   EVAL      WMSGDTA       = *BLANKS
+     C                   EVAL      WERRMSG       = *BLANKS
+     C                   CLEAR                   DS88213I
+     C*Map Fields
+     C                   CLEAR                   MBHEADR
+     C*
+     C                   EVAL      Z30_CCDCAT    = %SUBST(CLP003:1:5)
+     C                   EVAL      Z30_CCDCOD    = %SUBST(CLP004:1:10)
+     C                   EVAL      Z30_CCBKN     =
+     C                                        %INT(%SUBST(CLP005:1:2))
+     C                   EVAL      Z30_CCBRN     =
+     C                                        %INT(%SUBST(CLP006:1:5))
+     C                   EVAL      Z30_CCCIFN    =
+     C                                        %INT(%SUBST(CLP007:1:19))
+     C                   EVAL      Z30_CCOSNM    = %SUBST(CLP008:1:20)
+T1004C                   EVAL      Z30_CCDBRN    = %SUBST(CLP009:1:20)
+T1004C                   EVAL      Z30_CCMAKE    = %SUBST(CLP010:1:5)
+T1004C                   EVAL      Z30_CCMODN    = %SUBST(CLP011:1:5)
+T1004C                   EVAL      Z30_CCTYPU    = %SUBST(CLP012:1:3)
+T1004C                   EVAL      Z30_CCDENN    = %SUBST(CLP013:1:25)
+T1004C                   EVAL      Z30_CCNUR     = %SUBST(CLP014:1:1)
+T1004C                   EVAL      Z30_CCYMNU    =
+T1004C                                        %INT(%SUBST(CLP015:1:4))
+T1004C                   EVAL      Z30_CCLFTM    =
+T1004C                                        %INT(%SUBST(CLP016:1:4))
+T1004C                   EVAL      Z30_CVSMDM    = %SUBST(CLP017:1:1)
+T1004C                   EVAL      Z30_CCDCMV    =
+T1004C                                        %DEC(%SUBST(CLP018:1:17):17:2)
+T1004C                   EVAL      Z30_CCFSLV    =
+T1004C                                        %DEC(%SUBST(CLP019:1:17):17:2)
+T1004C                   EVAL      Z30_CCLVO8    =
+T1004C                                        %INT(%SUBST(CLP020:1:8))
+T1004C                   EVAL      Z30_CCVDT8    =
+T1004C                                        %INT(%SUBST(CLP021:1:8))
+T1004C                   EVAL      Z30_CCDNV8    =
+T1004C                                        %INT(%SUBST(CLP022:1:8))
+T1004C                   EVAL      Z30_CCVCOD    = %SUBST(CLP023:1:3)
+T1004C                   EVAL      Z30_CCVTYP    = %SUBST(CLP024:1:3)
+T1004C                   EVAL      Z30_CCDSTS    = %SUBST(CLP025:1:1)
+T1004C                   EVAL      Z30_CCLOG     = %SUBST(CLP026:1:11)
+T1004C                   EVAL      Z30_CCCOUN    = %SUBST(CLP027:1:3)
+T1004C                   EVAL      Z30_CCCURR    = %SUBST(CLP028:1:4)
+T1004C                   EVAL      Z30_CCBOAI    = %SUBST(CLP029:1:4)
+T1004C                   EVAL      Z30_CCDAPP    = %SUBST(CLP030:1:40)
+T1004C                   EVAL      Z30_CCMTMV    = %SUBST(CLP031:1:1)
+T1004C                   EVAL      Z30_SHARE     = %SUBST(CLP032:1:1)
+T1004C                   EVAL      Z30_CCAPRV    = %SUBST(CLP033:1:1)
+T1004C                   EVAL      Z30_MNCUID    = %SUBST(CLP034:1:10)
+     C                   EVAL      Z30_MNCDT8    =
+T1004C                                        %INT(%SUBST(CLP035:1:8))
+T1004C                   EVAL      Z30_CCGLBC    = %SUBST(CLP036:1:1)
+     C                   EVAL      Z30_CCLVOT    =
+T1004C                                        %INT(%SUBST(CLP037:1:6))
+T1004C                   EVAL      Z30_CCGCOU    = %SUBST(CLP038:1:3)
+     C                   EVAL      Z30_CCBOAP    =
+     C                                        %DEC(%SUBST(CLP039:1:11):11:9)
+     C                   EVAL      Z30_CCBSEL    = %SUBST(CLP040:1:1)
+     C                   EVAL      Z30_CCALPV    = %SUBST(CLP041:1:1)
+     C                   EVAL      Z30_CCSLLC    = %SUBST(CLP042:1:1)
+T1004C                   EVAL      Z30_CCDCID    = 0
+     C                   EVAL      Z30_CCDNAM    = %SUBST(CLP044:1:40)
+     C                   EVAL      Z30_CCDSCA    = %SUBST(CLP045:1:5)
+     C                   EVAL      Z30_CCDDSC    = %SUBST(CLP046:1:50)
+     C                   EVAL      Z30_CCDEXT    = %SUBST(CLP047:1:40)
+     C                   EVAL      Z30_CCCOFR    = %SUBST(CLP048:1:10)
+     C                   EVAL      Z30_CCDCHN    = %SUBST(CLP049:1:25)
+     C                   EVAL      Z30_CCRELA    = %SUBST(CLP050:1:2)
+     C                   EVAL      Z30_CCDVA8    =
+     C                                        %INT(%SUBST(CLP051:1:8))
+     C                   EVAL      Z30_CCDVRF    = %SUBST(CLP052:1:20)
+     C                   EVAL      Z30_CCDPTE    =
+     C                                        %DEC(%SUBST(CLP053:1:17):17:2)
+     C                   EVAL      Z30_CCPUR8    =
+     C                                        %INT(%SUBST(CLP054:1:8))
+     C                   EVAL      Z30_CCDPCS    =
+     C                                        %DEC(%SUBST(CLP055:1:17):17:2)
+     C                   EVAL      Z30_CCPAMT    =
+     C                                        %DEC(%SUBST(CLP056:1:17):17:2)
+     C                   EVAL      Z30_CCPORT    = %SUBST(CLP057:1:20)
+     C                   EVAL      Z30_CCPCAP    = %SUBST(CLP058:1:20)
+     C                   EVAL      Z30_CCCOMP    = %SUBST(CLP059:1:50)
+     C                   EVAL      Z30_CCPRLN    =
+     C                                        %INT(%SUBST(CLP060:1:3))
+     C                   EVAL      Z30_CCPRL     =
+     C                                        %DEC(%SUBST(CLP061:1:15):15:2)
+     C                   EVAL      Z30_CCSECL    =
+     C                                        %DEC(%SUBST(CLP062:1:15):15:2)
+     C                   EVAL      Z30_CCRREB    =
+     C                                        %DEC(%SUBST(CLP063:1:17):17:2)
+     C                   EVAL      Z30_CCRSUM    =
+     C                                        %DEC(%SUBST(CLP064:1:17):17:2)
+     C                   EVAL      Z30_CCINSF    = %SUBST(CLP065:1:1)
+     C                   EVAL      Z30_CCCMSG    = %SUBST(CLP066:1:1)
+     C                   EVAL      Z30_CCREM1    = %SUBST(CLP067:1:60)
+     C                   EVAL      Z30_CCSTOR    = %SUBST(CLP068:1:20)
+     C                   EVAL      Z30_CCSPRO    =
+     C                                        %DEC(%SUBST(CLP069:1:17):17:2)
+     C                   EVAL      Z30_CCRSDV    =
+     C                                        %DEC(%SUBST(CLP070:1:15):15:2)
+     C                   EVAL      Z30_CCLTCV    =
+     C                                        %DEC(%SUBST(CLP071:1:11):11:9)
+     C                   EVAL      Z30_CCPFSF    = %SUBST(CLP072:1:1)
+     C                   EVAL      Z30_CCPFS8    =
+     C                                        %INT(%SUBST(CLP073:1:8))
+     C                   EVAL      Z30_CCOVAL    =
+     C                                        %DEC(%SUBST(CLP074:1:17):17:2)
+     C                   EVAL      Z30_CCBVNA    = %SUBST(CLP075:1:40)
+     C                   EVAL      Z30_CCOED8    =
+     C                                        %INT(%SUBST(CLP076:1:8))
+     C                   EVAL      Z30_CCSRD8    =
+     C                                        %INT(%SUBST(CLP077:1:8))
+     C                   EVAL      Z30_CCDRC8    =
+     C                                        %INT(%SUBST(CLP078:1:8))
+     C                   EVAL      Z30_CCREV8    =
+     C                                        %INT(%SUBST(CLP079:1:8))
+     C                   EVAL      Z30_CCDORG    =
+     C                                        %DEC(%SUBST(CLP080:1:17):17:2)
+     C                   EVAL      Z30_LNHVCD    = %SUBST(CLP081:1:5)
+     C                   EVAL      Z30_CCBSEC    = %SUBST(CLP082:1:6)
+     C                   EVAL      Z30_CCRLSV    =
+     C                                        %DEC(%SUBST(CLP083:1:17):17:2)
+     C                   EVAL      Z30_WMNCTIM   = %SUBST(CLP084:1:26)
+     C                   EVAL      Z30_CCVALC    = %SUBST(CLP085:1:5)
+     C                   EVAL      Z30_CCBCAR    = %SUBST(CLP086:1:4)
+     C                   EVAL      Z30_CCTOSB    =
+     C                                        %DEC(%SUBST(CLP087:1:17):17:2)
+     C                   EVAL      Z30_CCDOBJ    = %SUBST(CLP088:1:1)
+     C                   EVAL      Z30_CCAUFR    = %SUBST(CLP089:1:1)
+     C                   EVAL      Z30_CCMAXC    =
+     C                                        %DEC(%SUBST(CLP090:1:17):17:2)
+     C                   EVAL      Z30_CCPFRQ    =
+     C                                        %INT(%SUBST(CLP091:1:3))
+     C                   EVAL      Z30_CCPFRC    = %SUBST(CLP092:1:1)
+     C                   EVAL      Z30_CCDFFM    = %SUBST(CLP093:1:1)
+     C                   EVAL      Z30_CCDVFR    =
+     C                                        %INT(%SUBST(CLP094:1:3))
+     C                   EVAL      Z30_CCDVFC    = %SUBST(CLP095:1:1)
+     C                   EVAL      Z30_CCDEL8    =
+     C                                        %INT(%SUBST(CLP096:1:8))
+     C                   EVAL      Z30_CCDISP    =
+     C                                        %DEC(%SUBST(CLP097:1:17):17:2)
+     C                   EVAL      Z30_CCCOMT    = %SUBST(CLP098:1:1)
+     C                   EVAL      Z30_CCINSA    =
+     C                                        %DEC(%SUBST(CLP099:1:17):17:2)
+     C                   EVAL      Z30_CCFXRD    =
+     C                                        %INT(%SUBST(CLP100:1:8))
+     C                   EVAL      Z30_CCDVFQ    =
+     C                                        %INT(%SUBST(CLP101:1:3))
+     C                   EVAL      Z30_CCDVCD    = %SUBST(CLP102:1:1)
+     C                   EVAL      Z30_CCFRCG    =
+     C                                        %DEC(%SUBST(CLP103:1:17):17:2)
+     C                   EVAL      Z30_CCBRGN    = %SUBST(CLP104:1:25)
+     C                   EVAL      Z30_CCREG8    =
+     C                                        %INT(%SUBST(CLP105:1:8))
+     C                   EVAL      Z30_CCMLUS    =
+     C                                        %INT(%SUBST(CLP106:1:9))
+     C                   EVAL      Z30_CCMOFU    =
+     C                                        %INT(%SUBST(CLP107:1:1))
+     C                   EVAL      Z30_CCFXRT    =
+     C                                        %DEC(%SUBST(CLP108:1:16):16:9)
+     C                   EVAL      Z30_WCURRIN   = %SUBST(CLP109:1:4)
+     C                   EVAL      Z30_CCRTD8    =
+     C                                        %INT(%SUBST(CLP110:1:8))
+     C                   EVAL      Z30_CCRDAM    =
+     C                                        %DEC(%SUBST(CLP111:1:17):17:2)
+     C                   EVAL      Z30_CRDTXM    =
+     C                                        %INT(%SUBST(CLP112:1:3))
+     C                   EVAL      Z30_CCOWCN    =
+     C                                        %INT(%SUBST(CLP113:1:17))
+     C                   EVAL      Z30_CCBALC    =
+     C                                        %DEC(%SUBST(CLP114:1:15):15:2)
+     C                   EVAL      Z30_CCTAXI    = %SUBST(CLP115:1:1)
+     C                   EVAL      Z30_CCTAXA    =
+     C                                        %DEC(%SUBST(CLP116:1:15):15:2)
+     C                   EVAL      Z30_CCREGF    =
+     C                                        %DEC(%SUBST(CLP117:1:17):17:2)
+     C                   EVAL      Z30_CCBLNK    = %SUBST(CLP118:1:1)
+     C                   EVAL      Z30_CCRSVP    = %SUBST(CLP119:1:1)
+     C                   EVAL      Z30_CCSECR    =
+     C                                        %DEC(%SUBST(CLP120:1:15):15:2)
+     C                   EVAL      Z30_CCGAMT    =
+     C                                        %DEC(%SUBST(CLP121:1:17):17:2)
+     C                   EVAL      Z30_CCRLNO    = %SUBST(CLP122:1:20)
+     C                   EVAL      Z30_CCPARV    =
+     C                                        %DEC(%SUBST(CLP123:1:17):17:2)
+     C                   EVAL      Z30_CCOER8    =
+     C                                        %INT(%SUBST(CLP124:1:8))
+     C                   EVAL      Z30_CCFORMA   = %SUBST(CLP125:1:20)
+     C                   EVAL      Z30_CCFORMB   = %SUBST(CLP126:1:20)
+     C                   EVAL      Z30_CCVEUS    = %SUBST(CLP127:1:1)
+     C                   EVAL      Z30_CCOWNN    =
+     C                                        %INT(%SUBST(CLP128:1:2))
+     C                   EVAL      Z30_CCCPF     = %SUBST(CLP129:1:1)
+     C                   EVAL      Z30_CCARPS    = %SUBST(CLP130:1:15)
+     C                   EVAL      Z30_CC1TD8    =
+     C                                        %INT(%SUBST(CLP131:1:8))
+     C                   EVAL      Z30_CC2TD8    =
+     C                                        %INT(%SUBST(CLP132:1:8))
+     C                   EVAL      Z30_CGPAMT    =
+     C                                        %DEC(%SUBST(CLP133:1:17):17:2)
+     C                   EVAL      Z30_CGPPCT    =
+     C                                        %DEC(%SUBST(CLP134:1:11):11:9)
+     C                   EVAL      Z30_CCDMCT    = %SUBST(CLP135:1:1)
+     C                   EVAL      Z30_CCCUTD    = %SUBST(CLP136:1:40)
+     C                   EVAL      Z30_CCDPAM    =
+     C                                        %DEC(%SUBST(CLP137:1:17):17:2)
+     C                   EVAL      Z30_CCCNTA    =
+     C                                        %DEC(%SUBST(CLP138:1:17):17:2)
+     C                   EVAL      Z30_CCROWN_1  =
+     C                                        %INT(%SUBST(CLP139:1:19))
+     C                   EVAL      Z30_CCROWN_2  =
+     C                                        %INT(%SUBST(CLP140:1:19))
+     C                   EVAL      Z30_CCROWN_3  =
+     C                                        %INT(%SUBST(CLP141:1:19))
+     C                   EVAL      Z30_CCROWN_4  =
+     C                                        %INT(%SUBST(CLP142:1:19))
+     C                   EVAL      Z30_CCROWN_5  =
+     C                                        %INT(%SUBST(CLP143:1:19))
+     C                   EVAL      Z30_WKCCFSLV  =
+     C                                        %DEC(%SUBST(CLP144:1:17):17:2)
+     C                   EVAL      Z30_WKCCDCMV  =
+     C                                        %DEC(%SUBST(CLP145:1:17):17:2)
+     C                   EVAL      Z30_WKCCDVFQ  =
+     C                                        %INT(%SUBST(CLP146:1:3))
+     C                   EVAL      Z30_WKCCDVCD  = %SUBST(CLP147:1:1)
+     C*
+     C                   EXSR      SRGETHEADR
+     C                   MOVEL     MBHEADR       RECVHDR
+     C                   MOVEL     DS88213I      INSTRS
+     C                   CALLB     'CL88213'     HNDRPL
+     C                   MOVEL     SENDHDR       MBHEADR
+     C*
+     C                   IF        mhHDRIND      = BAD
+     C                   ROLBK
+     C                   MOVEL     OTSTRS        MBERROR
+     C                   EVAL      WERRORC       = meERCODE
+     C                   EVAL      WERRMSG       = 'CL88213:' + %TRIM(meERFLDN)
+     C                                           + meERDESC
+     C                   EVAL      WERRFLD       = *BLANKS
+     C                   MOVEL     'F'           WTXNSTS
+     C                   MOVEL     'F'           WTXNSTS_GOOD
+     C                   EXSR      SR_SUB_BAD
+     C                   ELSE
+     C*
+     C                   IF        mhHDRIND      = GOOD
+     C                   MOVEL     'S'           WTXNSTS
+     C                   MOVEL     OTSTRS        DS88213R
+     C*
+     C                   EVAL      WK_CCDCID     = Z31_CCDCID
+     C                   EXSR      SR_SUB_GOOD
+     C                   ENDIF
+     C                   ENDIF
+     C*
+     C                   ENDSR
+     C*------------------
+     C     SR_CL88208_PN BEGSR
+     C*Maintenance - CLM Collateral Promisional Note
+     C                   EVAL      WERRORC       = *BLANKS
+     C                   EVAL      WERRFLD       = *BLANKS
+     C                   EVAL      WMSGDTA       = *BLANKS
+     C                   EVAL      WERRMSG       = *BLANKS
+     C                   CLEAR                   DS88208I
+     C*Map Fields
+     C                   CLEAR                   MBHEADR
+     C*
+T1004C                   EVAL      Z32_CCDCAT    = %SUBST(CLP003:1:5)
+     C                   EVAL      Z32_CCDCOD    = %SUBST(CLP004:1:10)
+     C                   EVAL      Z32_CCBKN     =
+     C                                        %INT(%SUBST(CLP005:1:2))
+     C                   EVAL      Z32_CCBRN     =
+     C                                        %INT(%SUBST(CLP006:1:5))
+     C                   EVAL      Z32_CCCIFN    =
+     C                                        %INT(%SUBST(CLP007:1:19))
+     C                   EVAL      Z32_CCOSNM    = %SUBST(CLP008:1:20)
+T1004C                   EVAL      Z32_CCPNNO    = %SUBST(CLP009:1:20)
+T1004C                   EVAL      Z32_CCDCMV    =
+T1004C                                        %DEC(%SUBST(CLP010:1:17):17:2)
+T1004C                   EVAL      Z32_CCISS8    =
+T1004C                                        %INT(%SUBST(CLP011:1:8))
+T1004C                   EVAL      Z32_CCRATE    =
+T1004C                                        %DEC(%SUBST(CLP012:1:11):11:9)
+T1004C                   EVAL      Z32_CCEXP8    =
+T1004C                                        %INT(%SUBST(CLP013:1:8))
+T1004C                   EVAL      Z32_CCINST    = %SUBST(CLP014:1:10)
+T1004C                   EVAL      Z32_CCDSTS    = %SUBST(CLP015:1:1)
+T1004C                   EVAL      Z32_CCCOUN    = %SUBST(CLP016:1:3)
+T1004C                   EVAL      Z32_CCCURR    = %SUBST(CLP017:1:4)
+     C                   EVAL      Z32_CCACK8    =
+T1004C                                        %INT(%SUBST(CLP018:1:8))
+T1004C                   EVAL      Z32_SHARE     = %SUBST(CLP019:1:1)
+T1004C                   EVAL      Z32_CCMTMV    = %SUBST(CLP020:1:1)
+T1004C                   EVAL      Z32_CCBOAI    = %SUBST(CLP021:1:4)
+T1004C                   EVAL      Z32_CCAPRV    = %SUBST(CLP022:1:1)
+T1004C                   EVAL      Z32_WCURRIN   = %SUBST(CLP023:1:4)
+T1004C                   EVAL      Z32_CCGLBC    = %SUBST(CLP024:1:1)
+T1004C                   EVAL      Z32_CCGCOU    = %SUBST(CLP025:1:3)
+     C                   EVAL      Z32_CCBOAP    =
+T1004C                                        %DEC(%SUBST(CLP026:1:11):11:9)
+T1004C                   EVAL      Z32_CCBSEL    = %SUBST(CLP027:1:1)
+T1004C                   EVAL      Z32_CCALPV    = %SUBST(CLP028:1:1)
+T1004C                   EVAL      Z32_CCSLLC    = %SUBST(CLP029:1:1)
+T1004C                   EVAL      Z32_CCDCID    = 0
+T1004C                   EVAL      Z32_CCDNAM    = %SUBST(CLP031:1:40)
+T1004C                   EVAL      Z32_CCDSCA    = %SUBST(CLP032:1:5)
+T1004C                   EVAL      Z32_CCPORC    = %SUBST(CLP033:1:1)
+T1004C                   EVAL      Z32_CCDDSC    = %SUBST(CLP034:1:50)
+T1004C                   EVAL      Z32_CCCOFR    = %SUBST(CLP035:1:10)
+T1004C                   EVAL      Z32_CCRELA    = %SUBST(CLP036:1:2)
+T1004C                   EVAL      Z32_CCCMSG    = %SUBST(CLP037:1:1)
+     C                   EVAL      Z32_CCPYER    = %SUBST(CLP038:1:40)
+     C                   EVAL      Z32_CCEDOR    = %SUBST(CLP039:1:40)
+     C                   EVAL      Z32_CCLIMT    = %SUBST(CLP040:1:50)
+     C                   EVAL      Z32_CCREM1    = %SUBST(CLP041:1:60)
+     C                   EVAL      Z32_CCLTCV    =
+     C                                        %DEC(%SUBST(CLP042:1:11):11:9)
+T1004C                   EVAL      Z32_CCPFSF    = %SUBST(CLP043:1:1)
+     C                   EVAL      Z32_CCPFS8    =
+     C                                        %INT(%SUBST(CLP044:1:8))
+     C                   EVAL      Z32_CCOVAL    =
+     C                                        %DEC(%SUBST(CLP045:1:17):17:2)
+     C                   EVAL      Z32_CCOED8    =
+     C                                        %INT(%SUBST(CLP046:1:8))
+     C                   EVAL      Z32_CCSRD8    =
+     C                                        %INT(%SUBST(CLP047:1:8))
+     C                   EVAL      Z32_CCDRC8    =
+     C                                        %INT(%SUBST(CLP048:1:8))
+     C                   EVAL      Z32_CCREV8    =
+     C                                        %INT(%SUBST(CLP049:1:8))
+     C                   EVAL      Z32_CCFXRT    =
+     C                                        %DEC(%SUBST(CLP050:1:16):16:9)
+T1004C                   EVAL      Z32_CCBSEC    = %SUBST(CLP051:1:6)
+     C                   EVAL      Z32_CCRLSV    =
+     C                                        %DEC(%SUBST(CLP052:1:17):17:2)
+     C                   EVAL      Z32_MNCUID    = %SUBST(CLP053:1:10)
+     C                   EVAL      Z32_MNCDT8    =
+     C                                        %INT(%SUBST(CLP054:1:8))
+     C                   EVAL      Z32_WMNCTIM   = %SUBST(CLP055:1:26)
+T1004C                   EVAL      Z32_CCBCAR    = %SUBST(CLP056:1:4)
+     C                   EVAL      Z32_CCTOSB    =
+     C                                        %DEC(%SUBST(CLP057:1:17):17:2)
+     C                   EVAL      Z32_CCFXRD    =
+     C                                        %INT(%SUBST(CLP058:1:8))
+     C                   EVAL      Z32_CCDNV8    =
+     C                                        %INT(%SUBST(CLP059:1:8))
+     C                   EVAL      Z32_CCDVFQ    =
+     C                                        %INT(%SUBST(CLP060:1:3))
+T1004C                   EVAL      Z32_CCDVCD    = %SUBST(CLP061:1:1)
+     C                   EVAL      Z32_CCLVO8    =
+     C                                        %INT(%SUBST(CLP062:1:8))
+     C                   EVAL      Z32_CCLVOT    =
+     C                                        %INT(%SUBST(CLP063:1:6))
+     C                   EVAL      Z32_CGPAMT    =
+     C                                        %DEC(%SUBST(CLP064:1:17):17:2)
+     C                   EVAL      Z32_CGPPCT    =
+     C                                        %DEC(%SUBST(CLP065:1:11):11:9)
+     C                   EVAL      Z32_CCCUTD    = %SUBST(CLP066:1:40)
+     C                   EVAL      Z32_CCPMSR    = %SUBST(CLP067:1:40)
+     C                   EVAL      Z32_CCROWN_1  =
+     C                                        %INT(%SUBST(CLP068:1:19))
+     C                   EVAL      Z32_CCROWN_2  =
+     C                                        %INT(%SUBST(CLP069:1:19))
+     C                   EVAL      Z32_CCROWN_3  =
+     C                                        %INT(%SUBST(CLP070:1:19))
+     C                   EVAL      Z32_CCROWN_4  =
+     C                                        %INT(%SUBST(CLP071:1:19))
+     C                   EVAL      Z32_CCROWN_5  =
+     C                                        %INT(%SUBST(CLP072:1:19))
+     C*
+     C                   EXSR      SRGETHEADR
+     C                   MOVEL     MBHEADR       RECVHDR
+     C                   MOVEL     DS88208I      INSTRS
+     C                   CALLB     'CL88208'     HNDRPL
+     C                   MOVEL     SENDHDR       MBHEADR
+     C*
+     C                   IF        mhHDRIND      = BAD
+     C                   ROLBK
+     C                   MOVEL     OTSTRS        MBERROR
+     C                   EVAL      WERRORC       = meERCODE
+     C                   EVAL      WERRMSG       = 'CL88208:' + %TRIM(meERFLDN)
+     C                                           + meERDESC
+     C                   EVAL      WERRFLD       = *BLANKS
+     C                   MOVEL     'F'           WTXNSTS
+     C                   MOVEL     'F'           WTXNSTS_GOOD
+     C                   EXSR      SR_SUB_BAD
+     C                   ELSE
+     C*
+     C                   IF        mhHDRIND      = GOOD
+     C                   MOVEL     'S'           WTXNSTS
+     C                   MOVEL     OTSTRS        DS88208R
+     C*
+     C                   EVAL      WK_CCDCID     = Z33_CCDCID
+     C                   EXSR      SR_SUB_GOOD
+     C                   ENDIF
+     C                   ENDIF
+     C*
+     C                   ENDSR
+     C*------------------
+T1004C     SR_CL88212_VEHBEGSR
+     C*Maintenance - CLM Collateral Vehicle
+     C                   EVAL      WERRORC       = *BLANKS
+     C                   EVAL      WERRFLD       = *BLANKS
+     C                   EVAL      WMSGDTA       = *BLANKS
+     C                   EVAL      WERRMSG       = *BLANKS
+     C                   CLEAR                   DS88212I
+     C*Map Fields
+     C                   CLEAR                   MBHEADR
+     C*
+T1004C                   EVAL      Z34_CCDCAT    = %SUBST(CLP003:1:5)
+     C                   EVAL      Z34_CCDCOD    = %SUBST(CLP004:1:10)
+     C                   EVAL      Z34_CCBKN     =
+     C                                        %INT(%SUBST(CLP005:1:2))
+     C                   EVAL      Z34_CCBRN     =
+     C                                        %INT(%SUBST(CLP006:1:5))
+     C                   EVAL      Z34_CCCIFN    =
+     C                                        %INT(%SUBST(CLP007:1:19))
+     C                   EVAL      Z34_CCOSNM    = %SUBST(CLP008:1:20)
+T1004C                   EVAL      Z34_CCBRGN    = %SUBST(CLP009:1:25)
+T1004C                   EVAL      Z34_CCVPRV    = %SUBST(CLP010:1:5)
+T1004C                   EVAL      Z34_CCMAKE    = %SUBST(CLP011:1:5)
+T1004C                   EVAL      Z34_CCTYPU    = %SUBST(CLP012:1:3)
+T1004C                   EVAL      Z34_CCCOLO    = %SUBST(CLP013:1:2)
+T1004C                   EVAL      Z34_CCNUR     = %SUBST(CLP014:1:1)
+T1004C                   EVAL      Z34_CCDOBJ    = %SUBST(CLP015:1:1)
+T1004C                   EVAL      Z34_CCDSTS    = %SUBST(CLP016:1:1)
+T1004C                   EVAL      Z34_CCLOG     = %SUBST(CLP017:1:11)
+T1004C                   EVAL      Z34_CCBOAI    = %SUBST(CLP018:1:4)
+T1004C                   EVAL      Z34_CCMTMV    = %SUBST(CLP019:1:1)
+T1004C                   EVAL      Z34_CCBLNK    = %SUBST(CLP020:1:1)
+T1004C                   EVAL      Z34_CCTAXI    = %SUBST(CLP021:1:1)
+T1004C                   EVAL      Z34_CCRSVP    = %SUBST(CLP022:1:1)
+T1004C                   EVAL      Z34_SHARE     = %SUBST(CLP023:1:1)
+     C                   EVAL      Z34_CCTOSB    =
+T1004C                                        %DEC(%SUBST(CLP024:1:17):17:2)
+T1004C                   EVAL      Z34_CCROTX    = %SUBST(CLP025:1:1)
+T1004C                   EVAL      Z34_CVINSD    = %SUBST(CLP026:1:1)
+T1004C                   EVAL      Z34_CCCOUN    = %SUBST(CLP027:1:3)
+T1004C                   EVAL      Z34_CCCURR    = %SUBST(CLP028:1:4)
+T1004C                   EVAL      Z34_CCAPRV    = %SUBST(CLP029:1:1)
+T1004C                   EVAL      Z34_WCURRIN   = %SUBST(CLP030:1:4)
+T1004C                   EVAL      Z34_CCGLBC    = %SUBST(CLP031:1:1)
+     C                   EVAL      Z34_CCBOAP    =
+     C                                        %DEC(%SUBST(CLP032:1:11):11:9)
+T1004C                   EVAL      Z34_CCBSEL    = %SUBST(CLP033:1:1)
+T1004C                   EVAL      Z34_CCALPV    = %SUBST(CLP034:1:1)
+T1004C                   EVAL      Z34_CCSLLC    = %SUBST(CLP035:1:1)
+T1004C                   EVAL      Z34_CCDCID    = 0
+     C                   EVAL      Z34_CCDNAM    = %SUBST(CLP037:1:40)
+T1004C                   EVAL      Z34_CCDSCA    = %SUBST(CLP038:1:5)
+     C                   EVAL      Z34_CCDDSC    = %SUBST(CLP039:1:50)
+     C                   EVAL      Z34_CCDEXT    = %SUBST(CLP040:1:40)
+     C                   EVAL      Z34_CCCOFR    = %SUBST(CLP041:1:10)
+     C                   EVAL      Z34_CCDENN    = %SUBST(CLP042:1:25)
+     C                   EVAL      Z34_CCDCHN    = %SUBST(CLP043:1:25)
+     C                   EVAL      Z34_CCRLNO    = %SUBST(CLP044:1:20)
+     C                   EVAL      Z34_CCREG8    =
+     C                                        %INT(%SUBST(CLP045:1:8))
+T1004C                   EVAL      Z34_CCRELA    = %SUBST(CLP046:1:2)
+     C                   EVAL      Z34_CCRTD8    =
+     C                                        %INT(%SUBST(CLP047:1:8))
+     C                   EVAL      Z34_CCYMNU    =
+     C                                        %INT(%SUBST(CLP048:1:4))
+     C                   EVAL      Z34_CCDAPP    = %SUBST(CLP049:1:40)
+     C                   EVAL      Z34_CCDVA8    =
+     C                                        %INT(%SUBST(CLP050:1:8))
+     C                   EVAL      Z34_CCDVRF    = %SUBST(CLP051:1:20)
+     C                   EVAL      Z34_CCDCMV    =
+     C                                        %DEC(%SUBST(CLP052:1:17):17:2)
+     C                   EVAL      Z34_CCPUR8    =
+     C                                        %INT(%SUBST(CLP053:1:8))
+     C                   EVAL      Z34_CCDPTE    =
+     C                                        %DEC(%SUBST(CLP054:1:17):17:2)
+     C                   EVAL      Z34_CCPAMT    =
+     C                                        %DEC(%SUBST(CLP055:1:17):17:2)
+     C                   EVAL      Z34_CCDPCS    =
+     C                                        %DEC(%SUBST(CLP056:1:17):17:2)
+T1004C                   EVAL      Z34_CCMODN    = %SUBST(CLP057:1:5)
+     C                   EVAL      Z34_CCPORT    = %SUBST(CLP058:1:20)
+     C                   EVAL      Z34_CCPCAP    = %SUBST(CLP059:1:20)
+     C                   EVAL      Z34_CCCOMP    = %SUBST(CLP060:1:50)
+     C                   EVAL      Z34_CCPRLN    =
+     C                                        %INT(%SUBST(CLP061:1:3))
+     C                   EVAL      Z34_CCPRL     =
+     C                                        %DEC(%SUBST(CLP062:1:15):15:2)
+     C                   EVAL      Z34_CCSECL    =
+     C                                        %DEC(%SUBST(CLP063:1:15):15:2)
+     C                   EVAL      Z34_CCRREB    =
+     C                                        %DEC(%SUBST(CLP064:1:17):17:2)
+     C                   EVAL      Z34_CCRSUM    =
+     C                                        %DEC(%SUBST(CLP065:1:17):17:2)
+T1004C                   EVAL      Z34_CCINSF    = %SUBST(CLP066:1:1)
+T1004C                   EVAL      Z34_CCCMSG    = %SUBST(CLP067:1:1)
+     C                   EVAL      Z34_CCREM1    = %SUBST(CLP068:1:60)
+     C                   EVAL      Z34_CCSTOR    = %SUBST(CLP069:1:20)
+     C                   EVAL      Z34_CCFSLV    =
+     C                                        %DEC(%SUBST(CLP070:1:17):17:2)
+     C                   EVAL      Z34_CCSPRO    =
+     C                                        %DEC(%SUBST(CLP071:1:17):17:2)
+     C                   EVAL      Z34_CCRSDV    =
+     C                                        %DEC(%SUBST(CLP072:1:15):15:2)
+     C                   EVAL      Z34_CCLTCV    =
+     C                                        %DEC(%SUBST(CLP073:1:11):11:9)
+     C                   EVAL      Z34_CCOVAL    =
+     C                                        %DEC(%SUBST(CLP074:1:17):17:2)
+     C                   EVAL      Z34_CCFRCG    =
+     C                                        %DEC(%SUBST(CLP075:1:17):17:2)
+     C                   EVAL      Z34_CCBVNA    = %SUBST(CLP076:1:40)
+     C                   EVAL      Z34_CCOED8    =
+     C                                        %INT(%SUBST(CLP077:1:8))
+     C                   EVAL      Z34_CCSRD8    =
+     C                                        %INT(%SUBST(CLP078:1:8))
+     C                   EVAL      Z34_CCREV8    =
+     C                                        %INT(%SUBST(CLP079:1:8))
+     C                   EVAL      Z34_CCDRC8    =
+     C                                        %INT(%SUBST(CLP080:1:8))
+     C                   EVAL      Z34_CCDORG    =
+     C                                        %DEC(%SUBST(CLP081:1:17):17:2)
+     C                   EVAL      Z34_CCREGF    =
+     C                                        %DEC(%SUBST(CLP082:1:17):17:2)
+     C                   EVAL      Z34_CCFXRT    =
+     C                                        %DEC(%SUBST(CLP083:1:16):16:9)
+T1004C                   EVAL      Z34_CCAFXI    = %SUBST(CLP084:1:1)
+T1004C                   EVAL      Z34_CCPFSF    = %SUBST(CLP085:1:1)
+     C                   EVAL      Z34_CCPFS8    =
+     C                                        %INT(%SUBST(CLP086:1:8))
+     C                   EVAL      Z34_CCBALC    =
+     C                                        %DEC(%SUBST(CLP087:1:15):15:2)
+     C                   EVAL      Z34_CCSECR    =
+     C                                        %DEC(%SUBST(CLP088:1:15):15:2)
+     C                   EVAL      Z34_CCTAXA    =
+     C                                        %DEC(%SUBST(CLP089:1:15):15:2)
+     C                   EVAL      Z34_CCGAMT    =
+     C                                        %DEC(%SUBST(CLP090:1:17):17:2)
+     C                   EVAL      Z34_CCDAPV    =
+     C                                        %DEC(%SUBST(CLP091:1:17):17:2)
+     C                   EVAL      Z34_CCPCDE    =
+     C                                        %INT(%SUBST(CLP092:1:6))
+     C                   EVAL      Z34_CCLOC1    = %SUBST(CLP093:1:40)
+     C                   EVAL      Z34_CCLOC2    = %SUBST(CLP094:1:40)
+     C                   EVAL      Z34_CCLOC3    = %SUBST(CLP095:1:40)
+     C                   EVAL      Z34_CCOWCN    =
+     C                                        %INT(%SUBST(CLP096:1:17))
+     C                   EVAL      Z34_CCDISP    =
+     C                                        %DEC(%SUBST(CLP097:1:17):17:2)
+T1004C                   EVAL      Z34_CCBSEC    = %SUBST(CLP098:1:6)
+     C                   EVAL      Z34_CCRLSV    =
+     C                                        %DEC(%SUBST(CLP099:1:17):17:2)
+     C                   EVAL      Z34_MNCUID    = %SUBST(CLP100:1:10)
+     C                   EVAL      Z34_MNCDT8    =
+     C                                        %INT(%SUBST(CLP101:1:8))
+     C                   EVAL      Z34_WMNCTIM   = %SUBST(CLP102:1:26)
+T1004C                   EVAL      Z34_CCVALC    = %SUBST(CLP103:1:5)
+T1004C                   EVAL      Z34_CCBCAR    = %SUBST(CLP104:1:4)
+T1004C                   EVAL      Z34_CCAUFR    = %SUBST(CLP105:1:1)
+     C                   EVAL      Z34_CCMAXC    =
+     C                                        %DEC(%SUBST(CLP106:1:17):17:2)
+     C                   EVAL      Z34_CCPFRQ    =
+     C                                        %INT(%SUBST(CLP107:1:3))
+T1004C                   EVAL      Z34_CCPFRC    = %SUBST(CLP108:1:1)
+T1004C                   EVAL      Z34_CCDFFM    = %SUBST(CLP109:1:1)
+     C                   EVAL      Z34_CCDVFR    =
+     C                                        %INT(%SUBST(CLP110:1:3))
+T1004C                   EVAL      Z34_CCDVFC    = %SUBST(CLP111:1:1)
+     C                   EVAL      Z34_CCDEL8    =
+     C                                        %INT(%SUBST(CLP112:1:8))
+T1004C                   EVAL      Z34_CCCOMT    = %SUBST(CLP113:1:1)
+     C                   EVAL      Z34_CCINSA    =
+     C                                        %DEC(%SUBST(CLP114:1:17):17:2)
+     C                   EVAL      Z34_CCRDAM    =
+     C                                        %DEC(%SUBST(CLP115:1:17):17:2)
+     C                   EVAL      Z34_CRDTXM    =
+     C                                        %INT(%SUBST(CLP116:1:3))
+     C                   EVAL      Z34_CCPARV    =
+     C                                        %DEC(%SUBST(CLP117:1:17):17:2)
+     C                   EVAL      Z34_CCORD8    =
+     C                                        %INT(%SUBST(CLP118:1:8))
+     C                   EVAL      Z34_CC1TD8    =
+     C                                        %INT(%SUBST(CLP119:1:8))
+     C                   EVAL      Z34_CC2TD8    =
+     C                                        %INT(%SUBST(CLP120:1:8))
+     C                   EVAL      Z34_CCOER8    =
+     C                                        %INT(%SUBST(CLP121:1:8))
+     C                   EVAL      Z34_CCFORMA   = %SUBST(CLP122:1:20)
+     C                   EVAL      Z34_CCFORMB   = %SUBST(CLP123:1:20)
+T1004C                   EVAL      Z34_CCVEUS    = %SUBST(CLP124:1:1)
+     C                   EVAL      Z34_CCOWNN    =
+     C                                        %INT(%SUBST(CLP125:1:2))
+T1004C                   EVAL      Z34_CCCPF     = %SUBST(CLP126:1:1)
+     C                   EVAL      Z34_CCARPS    = %SUBST(CLP127:1:15)
+     C                   EVAL      Z34_CCFXRD    =
+     C                                        %INT(%SUBST(CLP128:1:8))
+     C                   EVAL      Z34_CCDNV8    =
+     C                                        %INT(%SUBST(CLP129:1:8))
+     C                   EVAL      Z34_CCDVFQ    =
+     C                                        %INT(%SUBST(CLP130:1:3))
+T1004C                   EVAL      Z34_CCDVCD    = %SUBST(CLP131:1:1)
+     C                   EVAL      Z34_CCLVO8    =
+     C                                        %INT(%SUBST(CLP132:1:8))
+     C                   EVAL      Z34_CCLVOT    =
+     C                                        %INT(%SUBST(CLP133:1:6))
+     C                   EVAL      Z34_CCMLUS    =
+     C                                        %INT(%SUBST(CLP134:1:9))
+     C                   EVAL      Z34_CCMOFU    =
+     C                                        %INT(%SUBST(CLP135:1:1))
+     C                   EVAL      Z34_CGPAMT    =
+     C                                        %DEC(%SUBST(CLP136:1:17):17:2)
+     C                   EVAL      Z34_CGPPCT    =
+     C                                        %DEC(%SUBST(CLP137:1:11):11:9)
+T1004C                   EVAL      Z34_CCGCOU    = %SUBST(CLP138:1:3)
+T1004C                   EVAL      Z34_CCCUST    = %SUBST(CLP139:1:2)
+     C                   EVAL      Z34_CCCAD8    =
+     C                                        %INT(%SUBST(CLP140:1:8))
+T1004C                   EVAL      Z34_CCCUSF    = %SUBST(CLP141:1:2)
+     C                   EVAL      Z34_CCCUD8    =
+     C                                        %INT(%SUBST(CLP142:1:8))
+T1004C                   EVAL      Z34_CCCURE    = %SUBST(CLP143:1:2)
+T1004C                   EVAL      Z34_CCAUTO    = %SUBST(CLP144:1:1)
+     C                   EVAL      Z34_CCCOLR    = %SUBST(CLP145:1:10)
+     C                   EVAL      Z34_CCVYFS    =
+     C                                        %INT(%SUBST(CLP146:1:4))
+     C                   EVAL      Z34_CCVWGH    =
+     C                                        %INT(%SUBST(CLP147:1:5))
+     C                   EVAL      Z34_CCVUSG    =
+     C                                        %INT(%SUBST(CLP148:1:4))
+     C                   EVAL      Z34_CCRYCT    =
+     C                                        %INT(%SUBST(CLP149:1:2))
+     C                   EVAL      Z34_CCCUTD    = %SUBST(CLP150:1:40)
+     C                   EVAL      Z34_CCVDT8    =
+     C                                        %INT(%SUBST(CLP151:1:8))
+T1004C                   EVAL      Z34_CCVCOD    = %SUBST(CLP152:1:3)
+     C                   EVAL      Z34_CCROWN_1  =
+     C                                        %INT(%SUBST(CLP153:1:19))
+     C                   EVAL      Z34_CCROWN_2  =
+     C                                        %INT(%SUBST(CLP154:1:19))
+     C                   EVAL      Z34_CCROWN_3  =
+     C                                        %INT(%SUBST(CLP155:1:19))
+     C                   EVAL      Z34_CCROWN_4  =
+     C                                        %INT(%SUBST(CLP156:1:19))
+     C                   EVAL      Z34_CCROWN_5  =
+     C                                        %INT(%SUBST(CLP157:1:19))
+     C                   EVAL      Z34_CVRCD8    =
+     C                                        %INT(%SUBST(CLP158:1:8))
+T1004C                   EVAL      Z34_CCFUEL    = %SUBST(CLP159:1:1)
+T1004C                   EVAL      Z34_CCVTYP    = %SUBST(CLP160:1:3)
+     C                   EVAL      Z34_CCCNTA    =
+     C                                        %DEC(%SUBST(CLP161:1:17):17:2)
+T1004C                   EVAL      Z34_CCTMDL    = %SUBST(CLP162:1:5)
+     C                   EVAL      Z34_WKCCFSLV  =
+     C                                        %DEC(%SUBST(CLP163:1:17):17:2)
+     C                   EVAL      Z34_WKCCDCMV  =
+     C                                        %DEC(%SUBST(CLP164:1:17):17:2)
+     C                   EVAL      Z34_WKCCDVFQ  =
+     C                                        %INT(%SUBST(CLP165:1:3))
+T1004C                   EVAL      Z34_WKCCDVCD  = %SUBST(CLP166:1:1)
+     C*
+     C                   EXSR      SRGETHEADR
+     C                   MOVEL     MBHEADR       RECVHDR
+     C                   MOVEL     DS88212I      INSTRS
+     C                   CALLB     'CL88212'     HNDRPL
+     C                   MOVEL     SENDHDR       MBHEADR
+     C*
+     C                   IF        mhHDRIND      = BAD
+     C                   ROLBK
+     C                   MOVEL     OTSTRS        MBERROR
+     C                   EVAL      WERRORC       = meERCODE
+     C                   EVAL      WERRMSG       = 'CL88212:' + %TRIM(meERFLDN)
+     C                                           + meERDESC
+     C                   EVAL      WERRFLD       = *BLANKS
+     C                   MOVEL     'F'           WTXNSTS
+     C                   MOVEL     'F'           WTXNSTS_GOOD
+     C                   EXSR      SR_SUB_BAD
+     C                   ELSE
+     C*
+     C                   IF        mhHDRIND      = GOOD
+     C                   MOVEL     'S'           WTXNSTS
+     C                   MOVEL     OTSTRS        DS88212R
+     C*
+     C                   EVAL      WK_CCDCID     = Z35_CCDCID
+     C                   EXSR      SR_SUB_GOOD
+     C                   ENDIF
+     C                   ENDIF
+     C*
+     C                   ENDSR
+     C*------------------
+     C     SR_CL88203_GENBEGSR
+     C*Maintenance - CLM Collateral General
+     C                   EVAL      WERRORC       = *BLANKS
+     C                   EVAL      WERRFLD       = *BLANKS
+     C                   EVAL      WMSGDTA       = *BLANKS
+     C                   EVAL      WERRMSG       = *BLANKS
+     C                   CLEAR                   DS88203I
+     C*Map Fields
+     C                   CLEAR                   MBHEADR
+     C*
+T1004C                   EVAL      Z36_CCDCAT    = %SUBST(CLP003:1:5)
+     C                   EVAL      Z36_CCDCOD    = %SUBST(CLP004:1:10)
+     C                   EVAL      Z36_CCBKN     =
+     C                                        %INT(%SUBST(CLP005:1:2))
+     C                   EVAL      Z36_CCBRN     =
+     C                                        %INT(%SUBST(CLP006:1:5))
+     C                   EVAL      Z36_CCCIFN    =
+     C                                        %INT(%SUBST(CLP007:1:19))
+     C                   EVAL      Z36_CCOSNM    = %SUBST(CLP008:1:20)
+T1004C                   EVAL      Z36_CCDDSC    = %SUBST(CLP009:1:50)
+T1004C                   EVAL      Z36_CCDCMV    =
+T1004C                                        %DEC(%SUBST(CLP010:1:17):17:2)
+T1004C                   EVAL      Z36_CCLVO8    =
+T1004C                                        %INT(%SUBST(CLP011:1:8))
+T1004C                   EVAL      Z36_CCDNV8    =
+T1004C                                        %INT(%SUBST(CLP012:1:8))
+T1004C                   EVAL      Z36_CCDSTS    = %SUBST(CLP013:1:1)
+T1004C                   EVAL      Z36_CCRELA    = %SUBST(CLP014:1:2)
+T1004C                   EVAL      Z36_CCBOAI    = %SUBST(CLP015:1:4)
+T1004C                   EVAL      Z36_SHARE     = %SUBST(CLP016:1:1)
+T1004C                   EVAL      Z36_MNCUID    = %SUBST(CLP017:1:10)
+     C                   EVAL      Z36_MNCDT8    =
+T1004C                                        %INT(%SUBST(CLP018:1:8))
+     C                   EVAL      Z36_CCLVOT    =
+     C                                        %INT(%SUBST(CLP019:1:6))
+T1004C                   EVAL      Z36_CCTNWC    = %SUBST(CLP020:1:4)
+T1004C                   EVAL      Z36_CCCOUN    = %SUBST(CLP021:1:3)
+T1004C                   EVAL      Z36_CCCURR    = %SUBST(CLP022:1:4)
+T1004C                   EVAL      Z36_CCAPRV    = %SUBST(CLP023:1:1)
+T1004C                   EVAL      Z36_CCGLBC    = %SUBST(CLP024:1:1)
+T1004C                   EVAL      Z36_CCGCOU    = %SUBST(CLP025:1:3)
+     C                   EVAL      Z36_CCBOAP    =
+     C                                        %DEC(%SUBST(CLP026:1:11):11:9)
+T1004C                   EVAL      Z36_CCBSEL    = %SUBST(CLP027:1:1)
+T1004C                   EVAL      Z36_CCALPV    = %SUBST(CLP028:1:1)
+T1004C                   EVAL      Z36_CCSLLC    = %SUBST(CLP029:1:1)
+T1004C                   EVAL      Z36_CCDCID    = 0
+     C                   EVAL      Z36_CCDNAM    = %SUBST(CLP031:1:40)
+T1004C                   EVAL      Z36_CCDSCA    = %SUBST(CLP032:1:5)
+     C                   EVAL      Z36_CCDAPP    = %SUBST(CLP033:1:40)
+     C                   EVAL      Z36_CCCOFR    = %SUBST(CLP034:1:10)
+     C                   EVAL      Z36_CCDAPV    =
+     C                                        %DEC(%SUBST(CLP035:1:17):17:2)
+     C                   EVAL      Z36_CCDAP8    =
+     C                                        %INT(%SUBST(CLP036:1:8))
+     C                   EVAL      Z36_CCISS8    =
+     C                                        %INT(%SUBST(CLP037:1:8))
+     C                   EVAL      Z36_CCEXP8    =
+     C                                        %INT(%SUBST(CLP038:1:8))
+T1004C                   EVAL      Z36_CCMTMV    = %SUBST(CLP039:1:1)
+T1004C                   EVAL      Z36_CCINSF    = %SUBST(CLP040:1:1)
+T1004C                   EVAL      Z36_CCCMSG    = %SUBST(CLP041:1:1)
+     C                   EVAL      Z36_CCREM1    = %SUBST(CLP042:1:60)
+     C                   EVAL      Z36_CCLTCV    =
+     C                                        %DEC(%SUBST(CLP043:1:11):11:9)
+T1004C                   EVAL      Z36_CCPFSF    = %SUBST(CLP044:1:1)
+     C                   EVAL      Z36_CCPFS8    =
+     C                                        %INT(%SUBST(CLP045:1:8))
+     C                   EVAL      Z36_CCOVAL    =
+     C                                        %DEC(%SUBST(CLP046:1:17):17:2)
+     C                   EVAL      Z36_CCPRCN    = %SUBST(CLP047:1:20)
+     C                   EVAL      Z36_CCBRGN    = %SUBST(CLP048:1:25)
+     C                   EVAL      Z36_CCREG8    =
+     C                                        %INT(%SUBST(CLP049:1:8))
+     C                   EVAL      Z36_CCDSHR    =
+     C                                        %INT(%SUBST(CLP050:1:13))
+     C                   EVAL      Z36_CCPPUN    =
+     C                                        %DEC(%SUBST(CLP051:1:11):11:2)
+     C                   EVAL      Z36_CCSTOR    = %SUBST(CLP052:1:20)
+     C                   EVAL      Z36_CCDLOC    = %SUBST(CLP053:1:20)
+     C                   EVAL      Z36_CCOED8    =
+     C                                        %INT(%SUBST(CLP054:1:8))
+     C                   EVAL      Z36_CCSRD8    =
+     C                                        %INT(%SUBST(CLP055:1:8))
+     C                   EVAL      Z36_CCREV8    =
+     C                                        %INT(%SUBST(CLP056:1:8))
+     C                   EVAL      Z36_CCDRC8    =
+     C                                        %INT(%SUBST(CLP057:1:8))
+T1004C                   EVAL      Z36_LNHVCD    = %SUBST(CLP058:1:5)
+T1004C                   EVAL      Z36_CCBSEC    = %SUBST(CLP059:1:6)
+     C                   EVAL      Z36_CCRLSV    =
+     C                                        %DEC(%SUBST(CLP060:1:17):17:2)
+     C                   EVAL      Z36_WMNCTIM   = %SUBST(CLP061:1:26)
+T1004C                   EVAL      Z36_CCVALC    = %SUBST(CLP062:1:5)
+T1004C                   EVAL      Z36_CCBCAR    = %SUBST(CLP063:1:4)
+     C                   EVAL      Z36_CCTOSB    =
+     C                                        %DEC(%SUBST(CLP064:1:17):17:2)
+     C                   EVAL      Z36_CCFXRD    =
+     C                                        %INT(%SUBST(CLP065:1:8))
+     C                   EVAL      Z36_CCDVFQ    =
+     C                                        %INT(%SUBST(CLP066:1:3))
+T1004C                   EVAL      Z36_CCDVCD    = %SUBST(CLP067:1:1)
+     C                   EVAL      Z36_CCTNWA    =
+     C                                        %DEC(%SUBST(CLP068:1:17):17:2)
+     C                   EVAL      Z36_CCTFYE    =
+     C                                        %INT(%SUBST(CLP069:1:8))
+     C                   EVAL      Z36_CGPAMT    =
+     C                                        %DEC(%SUBST(CLP070:1:17):17:2)
+     C                   EVAL      Z36_CGPPCT    =
+     C                                        %DEC(%SUBST(CLP071:1:11):11:9)
+     C                   EVAL      Z36_CCGNP8    =
+     C                                        %INT(%SUBST(CLP072:1:8))
+     C                   EVAL      Z36_CCCUTD    = %SUBST(CLP073:1:40)
+     C                   EVAL      Z36_CCDACC    =
+     C                                        %INT(%SUBST(CLP074:1:19))
+     C                   EVAL      Z36_CCRATE    =
+     C                                        %DEC(%SUBST(CLP075:1:11):11:9)
+     C                   EVAL      Z36_CCTENT    =
+     C                                        %INT(%SUBST(CLP076:1:3))
+T1004C                   EVAL      Z36_CCTENC    = %SUBST(CLP077:1:1)
+     C                   EVAL      Z36_CCISSR    = %SUBST(CLP078:1:40)
+     C                   EVAL      Z36_CCFSLV    =
+     C                                        %DEC(%SUBST(CLP079:1:17):17:2)
+     C                   EVAL      Z36_CCROWN_1  =
+     C                                        %INT(%SUBST(CLP080:1:19))
+     C                   EVAL      Z36_CCROWN_2  =
+     C                                        %INT(%SUBST(CLP081:1:19))
+     C                   EVAL      Z36_CCROWN_3  =
+     C                                        %INT(%SUBST(CLP082:1:19))
+     C                   EVAL      Z36_CCROWN_4  =
+     C                                        %INT(%SUBST(CLP083:1:19))
+     C                   EVAL      Z36_CCROWN_5  =
+     C                                        %INT(%SUBST(CLP084:1:19))
+     C                   EVAL      Z36_WKCCFSLV  =
+     C                                        %DEC(%SUBST(CLP085:1:17):17:2)
+     C                   EVAL      Z36_WKCCDVFQ  =
+     C                                        %INT(%SUBST(CLP086:1:3))
+T1004C                   EVAL      Z36_WKCCDVCD  = %SUBST(CLP087:1:1)
+     C                   EVAL      Z36_CCITPNO   = %SUBST(CLP088:1:19)
+     C                   EVAL      Z36_CCITPNA   = %SUBST(CLP089:1:50)
+     C                   EVAL      Z36_CCITPRC   = %SUBST(CLP090:1:10)
+     C                   EVAL      Z36_CCITPRN   = %SUBST(CLP091:1:50)
+T1004C                   EVAL      Z36_CCITPCT   = %SUBST(CLP092:1:1)
+     C                   EVAL      Z36_CCITNA1   = %SUBST(CLP093:1:50)
+     C                   EVAL      Z36_CCITNA2   = %SUBST(CLP094:1:50)
+     C                   EVAL      Z36_CCITNA3   = %SUBST(CLP095:1:50)
+     C                   EVAL      Z36_CCITNA4   = %SUBST(CLP096:1:50)
+     C                   EVAL      Z36_CCITNA5   = %SUBST(CLP097:1:50)
+     C                   EVAL      Z36_CCITPEC   = %SUBST(CLP098:1:10)
+     C                   EVAL      Z36_CCITECN   = %SUBST(CLP099:1:50)
+     C                   EVAL      Z36_CCITRAMT  =
+     C                                        %DEC(%SUBST(CLP100:1:17):17:2)
+     C*
+     C                   EXSR      SRGETHEADR
+     C                   MOVEL     MBHEADR       RECVHDR
+     C                   MOVEL     DS88203I      INSTRS
+     C                   CALLB     'CL88203'     HNDRPL
+     C                   MOVEL     SENDHDR       MBHEADR
+     C*
+     C                   IF        mhHDRIND      = BAD
+     C                   ROLBK
+     C                   MOVEL     OTSTRS        MBERROR
+     C                   EVAL      WERRORC       = meERCODE
+     C                   EVAL      WERRMSG       = 'CL88203:' + %TRIM(meERFLDN)
+     C                                           + meERDESC
+     C                   EVAL      WERRFLD       = *BLANKS
+     C                   MOVEL     'F'           WTXNSTS
+     C                   MOVEL     'F'           WTXNSTS_GOOD
+     C                   EXSR      SR_SUB_BAD
+     C                   ELSE
+     C*
+     C                   IF        mhHDRIND      = GOOD
+     C                   MOVEL     'S'           WTXNSTS
+     C                   MOVEL     OTSTRS        DS88203R
+     C*
+     C                   EVAL      WK_CCDCID     = Z37_CCDCID
+     C                   EXSR      SR_SUB_GOOD
+     C                   ENDIF
+     C                   ENDIF
+     C*
+     C                   ENDSR
+     C*------------------
+     C     SRGETHEADR    BEGSR
+     C*PURPOSE   : GET SOURCE ID
+     C
+     C                   EVAL      mhHDBKNO      = IN__BKN
+     C                   EVAL      mhHDBRNO      = IN__BRN
+     C                   EVAL      mhHDUSID      = 'N1P'
+     C                   EVAL      mhHDTMLI      = PSPGM
+     C                   EVAL      mhHDACCD      = 'A'
+     C                   EVAL      mhHDVFMT      = *ALL'Y'
+     C
+     C                   ENDSR
+     C*------------------
+     C     SR_CLRVAR_P1  BEGSR
+     C*clear variable
+     C                   CLEAR                   QQ
+     C                   CLEAR                   ZZ
+     C                   CLEAR                   WW
+     C                   CLEAR                   S#CCDCID
+     C                   CLEAR                   Z#CCDCID
+     C                   CLEAR                   M#CCDCID
+     C                   CLEAR                   WK_CCDCID
+     C                   CLEAR                   WK_CCONID
+     C                   CLEAR                   DIMRECSEQ
+     C                   CLEAR                   X#CNT_REC
+     C                   CLEAR                   X#CNT_ALL
+     C                   CLEAR                   X#CNT_MAIN
+     C                   CLEAR                   X#CNT_COL
+     C                   CLEAR                   X#COL_CON
+     C                   CLEAR                   X#CON_FAC
+     C                   CLEAR                   II
+     C                   CLEAR                   JJ
+     C                   CLEAR                   DIMRECSEQ
+     C                   CLEAR                   wErrorCode        2
+     C                   MOVEL(P)  *OFF          FLAG_MAIN         1
+     C                   MOVEL(P)  *ALL'X'       ER_RECSEQ
+     C                   MOVEL(P)  'S'           WTXNSTS_GOOD
+     C                   MOVEL(P)  *OFF          USE_DIM_MAIN
+     C*
+     C                   ENDSR
+     C*------------------
+     C     SR_CLRVAR_P2  BEGSR
+     C*clear variable
+     C                   CLEAR                   X#CNT_ALL
+     C                   CLEAR                   X#CNT_MAIN
+     C                   MOVEL(P)  *OFF          FLAG_MAIN
+     C                   ENDSR
+     C*------------------
+     C     SR_CLRVAR_P3  BEGSR
+     C*clear variable
+     C                   CLEAR                   QQ
+     C                   CLEAR                   ZZ
+     C                   CLEAR                   S#CCDCID
+     C                   CLEAR                   Z#CCDCID
+     C*
+     C                   ENDSR
+     C*------------------
+     C     SRMOVBUFF     BEGSR
+     C*
+     C                   CLEAR                   BUFFER
+     C* Load Bank/Branch
+     C                   SELECT
+     C*
+     C                   ENDSL
+     C                   ENDSR
+     C*------------------
+     C     SR_ERROR_E1   BEGSR
+     C*Get Error Description
+     C                   Z-ADD     1             JJ
+     C     wErrorCode    LOOKUP    XXXErrCd(JJ)                           55
+     C                   IF        *IN55
+     C                   EVAL      ERRCDE        = wErrorCode
+     C                   EVAL      ERRDSC        = %TRIM(ERRDSC)
+     C                                           + %TRIM(XXXErrDesc(JJ))
+     C                                           + '|'
+     C                   ENDIF
+     C                   MOVEL(P)  'Y'           FLAGERR
+     C                   CLEAR                   wErrorCode
+     C*
+     C                   UPDATE    RCLON1PC
+     C*
+     C                   Z-ADD     1             JJ
+     C     CLP002        LOOKUP    DIMRECSEQ(JJ)                          55
+     C                   IF        *IN55
+     C                   ELSE
+     C                   ADD       1             II
+     C                   MOVEL(P)  CLP002        DIMRECSEQ(II)
+     C                   ENDIF
+     C*
+     C                   MOVEL(P)  CLP002        ER_RECSEQ
+     C                   ENDSR
+     C*------------------
+     C     SR_SUB_BAD    BEGSR
+     C*bad
+     C                   EVAL      ERRCDE        = WERRORC
+     C                   EVAL      ERRDSC        = WERRMSG
+     C*
+T1001C                   IF        WK_UPDATE_FILE= *ON
+     C                   MOVEL(P)  'Y'           FLAGERR
+     C                   CLEAR                   CCCDCID
+     C                   UPDATE    RCLON1PC
+T1001C                   ENDIF
+     C*
+     C                   Z-ADD     1             JJ
+     C     CLP002        LOOKUP    DIMRECSEQ(JJ)                          55
+     C                   IF        *IN55
+     C                   ELSE
+     C                   ADD       1             II
+     C                   MOVEL(P)  CLP002        DIMRECSEQ(II)
+     C                   ENDIF
+     C*
+     C                   MOVEL(P)  CLP002        ER_RECSEQ
+     C                   ENDSR
+     C*------------------
+     C     SR_SUB_GOOD   BEGSR
+     C*good
+     C                   IF        CLP001        = C_CLP001_CT
+     C                   CLEAR                   WK_CCDCID
+     C                   ENDIF
+     C*
+     C                   IF        CLP001        = C_CLP001_CF
+     C                   CLEAR                   WK_CCDCID
+     C                   CLEAR                   WK_CCONID
+     C                   ENDIF
+     C*
+T1001C                   IF        WK_UPDATE_FILE= *ON
+     C                   MOVEL(P)  'N'           FLAGERR
+     C                   Z-ADD     WK_CCDCID     CCCDCID
+     C                   Z-ADD     WK_CCONID     CCCONID
+     C                   UPDATE    RCLON1PC
+T1001C                   ENDIF
+     C*
+     C                   IF        CLP001        = C_CLP001_CL
+     C                   ADD       1             QQ
+     C                   Z-ADD     WK_CCDCID     S#CCDCID(QQ)
+     C                   ENDIF
+     C*
+     C                   IF        CLP001        = C_CLP001_CL
+     C                   IF        (CLP003       = C_CLP003_RE   OR
+     C                              CLP003       = C_CLP003_MACH )
+     C                   ADD       1             ZZ
+     C                   Z-ADD     WK_CCDCID     Z#CCDCID(ZZ)
+     C                   ELSE
+     C                   ADD       1             WW
+     C                   Z-ADD     WK_CCDCID     M#CCDCID(WW)
+     C                   ENDIF
+     C                   ENDIF
+     C*
+T1004C                   IF        WK_UPDATE_FILE= *ON
+     C                   IF        CLP001        = C_CLP001_CM
+     C                   ADD       1             WW
+     C                   Z-ADD     WK_CCDCID     M#CCDCID(WW)
+     C                   MOVEL(P)  *ON           USE_DIM_MAIN
+     C                   ENDIF
+T1004C                   ENDIF
+     C                   ENDSR
+     C*------------------
+     C     SR_GOOD_RTN   BEGSR
+     C*
+     C                   IF        WTXNSTS_GOOD  = 'S'
+     C                   COMMIT
+     C                   ENDIF
+     C*
+     C                   ENDSR
+     C*------------------
+T1002C     SR_CCDCAT_VAL BEGSR
+T1002C*Collateral Category validate
+T1002C     *LIKE         DEFINE    CCDCID        KK_CCDCID
+T1002C                   MOVEL(P)  *ON           WK_CCDCAT_ERR
+T1002C* CCDCAT Collateral Category  RE MACH
+T1002C                   Z-ADD     Z14_CCSCOL_1  V#CCDCID(1)
+T1002C                   Z-ADD     Z14_CCSCOL_2  V#CCDCID(2)
+T1002C                   Z-ADD     Z14_CCSCOL_3  V#CCDCID(3)
+T1002C                   Z-ADD     Z14_CCSCOL_4  V#CCDCID(4)
+T1002C                   Z-ADD     Z14_CCSCOL_5  V#CCDCID(5)
+T1002C*
+T1002C     1             DO        5             VV
+T1002C                   IF        V#CCDCID(VV)  = 0
+T1002C                   ITER
+T1002C                   ENDIF
+T1002C*
+T1002C                   Z-ADD     V#CCDCID(VV)  KK_CCDCID
+T1002C     KK_CCDCID     CHAIN     CLCOLD
+T1002C                   IF        %FOUND(CLCOLD)
+T1002C                   IF        CCDCAT        = C_CLP003_RE  OR
+T1002C                             CCDCAT        = C_CLP003_MACH
+T1002C                   ELSE
+T1002C                   LEAVE
+T1002C                   ENDIF
+T1002C                   ENDIF
+T1002C                   ENDDO
+T1002C*
+T1002C                   MOVEL(P)  *OFF          WK_CCDCAT_ERR
+T1002C                   ENDSR
+T1002C*------------------
+     C     *INZSR        BEGSR
+     C*  SUBROUTINE: *INZSR                                          *
+     C*  PURPOSE   : Initialization Routine                          *
+     C*
+     C                   MOVEL(P)  *OFF          WKEOLOOP          1
+     C                   MOVEL(P)  *OFF          WKEOSKIP          1
+     C                   MOVEL(P)  *OFF          WKFIRSTR          1
+     C                   MOVEL(P)  *OFF          USE_DIM_MAIN      1
+T1001C                   MOVEL(P)  *ON           WK_UPDATE_FILE    1
+T1002C                   MOVEL(P)  *OFF          WK_CCDCAT_ERR     1
+     C*
+     C                   READ      CLPAR1                                 30
+     C*
+     C                   CLEAR                   MBHEADR
+     C*
+     C                   ENDSR
+     C*------------------
+     C*
+     C*Copybook-MBASE Interface RLE
+     C/COPY QCLMREFRLE,LLIMBRLE
+     C*Copybook - Maintenance Log
+     C/COPY QMBSREFRLE,MBQMNTLOG
+     C*------------------
+** Error Code Table & Description...+... 4 ...+... 5 ...+... 6 ...+... 7 ...+... 8 ...+... 9
+0101-Record Type='CM' but Collateral Category<>'MAIN'
+0202-Collateral Category='MAIN' but Record Type<>'CM'
+0303-Cannot Create Main Collateral before Create Sub Collateral
+0404-Collateral MAIN Support for Sub Collateral Category 'RE' and 'MACH' only.
+0505-Cannot Create Main Collateral if have Sub Collateral 'RE' only 1 record.
+0606-Cannot Sent in 'CT' more than 1 record.
+0707-Cannot Sent in 'CF' more than 1 record.
+0808-Cannot Create Link Contract to Facility if Contract ID=0
+0909-Cannot Create Contract if Collateral ID=0
+1010-Collateral MAIN Support for Sub Collateral Category 'RE' and 'MACH' only.
+1111-Cannot Create Link Contract to Facility if Facility=0
+1313-Collateral Category='MAIN':Sub Collateral ID cannot be zero
+1414-Collateral MAIN Support for Sub Collateral Category 'RE' and 'MACH' only.
+
